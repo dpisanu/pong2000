@@ -93,4 +93,36 @@ describe('pongEngine physics', () => {
     const res2 = stepMatchPhysics(stateRight, { left: 0, right: 0 }, SIMULATION_DT_SEC * 2);
     expect(res2.scoredSide).toBe('left');
   });
+
+  it('supports full-height Demo paddle (1.0) rebounding top and bottom edge shots', () => {
+    const rules = { rightPaddleHeight: 1.0 };
+    const state = createInitialPhysics('right');
+    const rightFaceX = 1 - PADDLE_MARGIN_X - PADDLE_WIDTH;
+
+    // Attempting to move full-height paddle stays clamped cleanly at center 0.5
+    stepPaddlesOnly(state, { left: 0, right: 1 }, SIMULATION_DT_SEC * 10, rules);
+    expect(state.rightY).toBe(0.5);
+
+    // Ball approaching near top edge (ballY = 0.05) should hit Demo paddle and angle upward
+    state.ballX = rightFaceX - 0.01;
+    state.ballY = 0.05;
+    state.ballVx = 0.8;
+    state.ballVy = 0;
+    const topHit = stepMatchPhysics(state, { left: 0, right: 0 }, SIMULATION_DT_SEC * 2, rules);
+    expect(topHit.paddleHit).toBe(true);
+    expect(topHit.scoredSide).toBeNull();
+    expect(state.ballVx).toBeLessThan(0);
+    expect(state.ballVy).toBeLessThan(0);
+
+    // Ball approaching near bottom edge (ballY = 0.95) should hit Demo paddle and angle downward
+    state.ballX = rightFaceX - 0.01;
+    state.ballY = 0.95;
+    state.ballVx = 0.8;
+    state.ballVy = 0;
+    const bottomHit = stepMatchPhysics(state, { left: 0, right: 0 }, SIMULATION_DT_SEC * 2, rules);
+    expect(bottomHit.paddleHit).toBe(true);
+    expect(bottomHit.scoredSide).toBeNull();
+    expect(state.ballVx).toBeLessThan(0);
+    expect(state.ballVy).toBeGreaterThan(0);
+  });
 });

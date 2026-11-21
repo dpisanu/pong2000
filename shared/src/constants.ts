@@ -60,3 +60,7 @@ export const BUNDLED_AVATARS: readonly BundledAvatar[] = [
 
 export const DEFAULT_AVATAR_ID = BUNDLED_AVATARS[0].id;
 export const DEFAULT_AVATAR_URL = '/avatars/default.svg';
+
+export const DEMO_PLAYER_ID = 'bot_demo_player';
+export const DEMO_PLAYER_NICKNAME = 'Demo Player';
+

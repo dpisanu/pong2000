@@ -3,6 +3,7 @@ import http from 'node:http';
 import path from 'node:path';
 import express from 'express';
 import { AvatarService } from './server/src/avatars/avatarService.ts';
+import { AdminAuthService, ServerConfigService } from './server/src/config/serverConfig.ts';
 import { createApp, getLanUrls } from './server/src/http/createApp.ts';
 import { SessionManager } from './server/src/sessions/sessionManager.ts';
 import { WsGateway } from './server/src/ws/wsGateway.ts';
@@ -21,6 +22,8 @@ async function main(): Promise<void> {
   const avatarService = new AvatarService(avatarStorageDir);
   await avatarService.init();
 
+  const configService = new ServerConfigService(publicUrl ?? '');
+  const adminAuth = new AdminAuthService(process.env.ADMIN_PASSCODE);
   const sessions = new SessionManager();
   let gateway: WsGateway | null = null;
 
@@ -35,6 +38,11 @@ async function main(): Promise<void> {
     },
     port,
     publicUrl,
+    configService,
+    adminAuth,
+    onConfigUpdated: () => {
+      gateway?.applyRuntimeConfigUpdate();
+    },
     allowedOrigins,
   });
 
@@ -43,6 +51,7 @@ async function main(): Promise<void> {
     server,
     sessions,
     avatarService,
+    configService,
     allowedOrigins,
   });
 

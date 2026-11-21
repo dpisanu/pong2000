@@ -10,10 +10,12 @@ export interface ChallengeRecord {
   status: ChallengeStatus;
   expiresAt: number;
   timer: ReturnType<typeof setTimeout> | null;
+  botAcceptTimer: ReturnType<typeof setTimeout> | null;
+  isBotTarget: boolean;
 }
 
 export interface ChallengeCallbacks {
-  onChallengeCreated: (challenge: ChallengeInfo, affectedPlayers: [PlayerSession, PlayerSession]) => void;
+  onChallengeCreated: (challenge: ChallengeInfo, affectedPlayers: PlayerSession[]) => void;
   onChallengeUpdated: (challenge: ChallengeInfo, affectedPlayers: PlayerSession[]) => void;
   onChallengeAcceptedStartMatch: (fromPlayer: PlayerSession, toPlayer: PlayerSession) => void;
 }
@@ -30,7 +32,7 @@ export class ChallengeManager {
   private readonly challenges = new Map<string, ChallengeRecord>();
   private readonly sessions: SessionManager;
   private readonly callbacks: ChallengeCallbacks;
-  private readonly expiryMs: number;
+  private expiryMs: number;
 
   constructor(
     sessions: SessionManager,
@@ -39,6 +41,10 @@ export class ChallengeManager {
   ) {
     this.sessions = sessions;
     this.callbacks = callbacks;
+    this.expiryMs = expiryMs;
+  }
+
+  setExpiryMs(expiryMs: number): void {
     this.expiryMs = expiryMs;
   }
 
@@ -84,7 +90,12 @@ export class ChallengeManager {
     if (from.status !== 'AVAILABLE' || from.activeChallengeId || from.activeMatchId) {
       throw new ChallengeError('ALREADY_BUSY', 'Finish or cancel your current activity first.');
     }
-    if (target.status !== 'AVAILABLE' || target.activeChallengeId || target.activeMatchId) {
+
+    const isBotTarget = Boolean(target.isBot);
+    if (
+      !isBotTarget &&
+      (target.status !== 'AVAILABLE' || target.activeChallengeId || target.activeMatchId)
+    ) {
       throw new ChallengeError('PLAYER_UNAVAILABLE', `${target.nickname} is currently unavailable.`);
     }
 
@@ -96,9 +107,11 @@ export class ChallengeManager {
     from.priorStatus = 'INVITED';
     from.activeChallengeId = challengeId;
 
-    target.status = 'INVITED';
-    target.priorStatus = 'INVITED';
-    target.activeChallengeId = challengeId;
+    if (!isBotTarget) {
+      target.status = 'INVITED';
+      target.priorStatus = 'INVITED';
+      target.activeChallengeId = challengeId;
+    }
 
     const record: ChallengeRecord = {
       challengeId,
@@ -109,13 +122,48 @@ export class ChallengeManager {
       timer: setTimeout(() => {
         this.expireChallenge(challengeId);
       }, this.expiryMs),
+      botAcceptTimer: null,
+      isBotTarget,
     };
 
     this.challenges.set(challengeId, record);
 
     const info = this.toInfo(record);
-    this.callbacks.onChallengeCreated(info, [from, target]);
+    this.callbacks.onChallengeCreated(info, isBotTarget ? [from] : [from, target]);
+
+    if (isBotTarget) {
+      record.botAcceptTimer = setTimeout(() => {
+        record.botAcceptTimer = null;
+        this.autoAcceptBotChallenge(challengeId);
+      }, 60);
+    }
+
     return info;
+  }
+
+  private autoAcceptBotChallenge(challengeId: string): void {
+    const record = this.challenges.get(challengeId);
+    if (!record || record.status !== 'PENDING') return;
+
+    const from = this.sessions.getById(record.fromPlayerId);
+    const to = this.sessions.getById(record.toPlayerId);
+    if (!from || !from.connected || !to || from.activeChallengeId !== challengeId) {
+      this.finalizeTerminal(record, 'INVALIDATED', 'Participant unavailable');
+      return;
+    }
+
+    if (record.timer) {
+      clearTimeout(record.timer);
+      record.timer = null;
+    }
+
+    record.status = 'MATCH_CREATED';
+    from.activeChallengeId = null;
+
+    const info = this.toInfo(record);
+    this.callbacks.onChallengeUpdated(info, [from]);
+    this.callbacks.onChallengeAcceptedStartMatch(from, to);
+    this.challenges.delete(challengeId);
   }
 
   acceptChallenge(actorPlayerId: string, challengeId: string): ChallengeInfo {
@@ -145,6 +193,10 @@ export class ChallengeManager {
       clearTimeout(record.timer);
       record.timer = null;
     }
+    if (record.botAcceptTimer) {
+      clearTimeout(record.botAcceptTimer);
+      record.botAcceptTimer = null;
+    }
 
     record.status = 'MATCH_CREATED';
     from.activeChallengeId = null;
@@ -153,6 +205,7 @@ export class ChallengeManager {
     const info = this.toInfo(record);
     this.callbacks.onChallengeUpdated(info, [from, to]);
     this.callbacks.onChallengeAcceptedStartMatch(from, to);
+    this.challenges.delete(challengeId);
     return info;
   }
 
@@ -214,11 +267,15 @@ export class ChallengeManager {
       clearTimeout(record.timer);
       record.timer = null;
     }
+    if (record.botAcceptTimer) {
+      clearTimeout(record.botAcceptTimer);
+      record.botAcceptTimer = null;
+    }
     record.status = status;
 
     const affected: PlayerSession[] = [];
     const from = this.sessions.getById(record.fromPlayerId);
-    const to = this.sessions.getById(record.toPlayerId);
+    const to = record.isBotTarget ? undefined : this.sessions.getById(record.toPlayerId);
 
     for (const p of [from, to]) {
       if (!p) continue;
@@ -241,6 +298,7 @@ export class ChallengeManager {
   clearAll(): void {
     for (const record of this.challenges.values()) {
       if (record.timer) clearTimeout(record.timer);
+      if (record.botAcceptTimer) clearTimeout(record.botAcceptTimer);
     }
     this.challenges.clear();
   }

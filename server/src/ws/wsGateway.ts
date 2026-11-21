@@ -19,6 +19,7 @@ import {
 } from '../../../shared/src/validation.ts';
 import type { AvatarService } from '../avatars/avatarService.ts';
 import { ChallengeError, ChallengeManager } from '../challenges/challengeManager.ts';
+import { ServerConfigService } from '../config/serverConfig.ts';
 import { MatchError, MatchManager } from '../matches/matchManager.ts';
 import { SessionManager, type PlayerSession } from '../sessions/sessionManager.ts';
 
@@ -37,6 +38,7 @@ export interface WsGatewayOptions {
   server: HttpServer;
   sessions: SessionManager;
   avatarService: AvatarService;
+  configService?: ServerConfigService;
   allowedOrigins?: string[];
   challengeExpiryMs?: number;
   disconnectGraceMs?: number;
@@ -74,6 +76,7 @@ export class WsGateway {
   readonly sessions: SessionManager;
   readonly challenges: ChallengeManager;
   readonly matches: MatchManager;
+  readonly configService: ServerConfigService;
   private readonly avatarService: AvatarService;
   private readonly socketsById = new Map<string, SocketState>();
   private readonly socketsByPlayerId = new Map<string, SocketState>();
@@ -85,30 +88,29 @@ export class WsGateway {
   constructor(options: WsGatewayOptions) {
     this.sessions = options.sessions;
     this.avatarService = options.avatarService;
+    this.configService = options.configService ?? new ServerConfigService();
     this.allowedOrigins = options.allowedOrigins ?? [];
     this.heartbeatTimeoutMs = options.heartbeatTimeoutMs ?? HEARTBEAT_TIMEOUT_MS;
+    const initialCfg = this.configService.getConfig();
 
     this.challenges = new ChallengeManager(
       this.sessions,
       {
-        onChallengeCreated: (challenge, [from, to]) => {
-          this.sendToPlayer(from.playerId, {
-            type: 'challenge.received',
-            protocolVersion: PROTOCOL_VERSION,
-            serverTime: Date.now(),
-            payload: { challenge },
-          });
-          this.sendToPlayer(to.playerId, {
-            type: 'challenge.received',
-            protocolVersion: PROTOCOL_VERSION,
-            serverTime: Date.now(),
-            payload: { challenge },
-          });
-          this.broadcastLobbyUpsert(from);
-          this.broadcastLobbyUpsert(to);
+        onChallengeCreated: (challenge, affectedPlayers) => {
+          for (const player of affectedPlayers) {
+            if (player.isBot) continue;
+            this.sendToPlayer(player.playerId, {
+              type: 'challenge.received',
+              protocolVersion: PROTOCOL_VERSION,
+              serverTime: Date.now(),
+              payload: { challenge },
+            });
+            this.broadcastLobbyUpsert(player);
+          }
         },
         onChallengeUpdated: (challenge, affectedPlayers) => {
           for (const player of affectedPlayers) {
+            if (player.isBot) continue;
             this.sendToPlayer(player.playerId, {
               type: 'challenge.updated',
               protocolVersion: PROTOCOL_VERSION,
@@ -120,31 +122,35 @@ export class WsGateway {
         },
         onChallengeAcceptedStartMatch: (from, to) => {
           this.matches.createMatch(from, to);
-          this.broadcastLobbyUpsert(from);
-          this.broadcastLobbyUpsert(to);
+          if (!from.isBot) this.broadcastLobbyUpsert(from);
+          if (!to.isBot) this.broadcastLobbyUpsert(to);
         },
       },
-      options.challengeExpiryMs,
+      options.challengeExpiryMs ?? initialCfg.challengeExpiryMs,
     );
 
     this.matches = new MatchManager(
       this.sessions,
       {
-        onMatchStarted: (matchId, left, right, snapshot, participants) => {
-          this.sendToPlayer(left.playerId, {
-            type: 'match.started',
-            protocolVersion: PROTOCOL_VERSION,
-            serverTime: Date.now(),
-            payload: { matchId, yourSide: 'left', participants, snapshot },
-          });
-          this.sendToPlayer(right.playerId, {
-            type: 'match.started',
-            protocolVersion: PROTOCOL_VERSION,
-            serverTime: Date.now(),
-            payload: { matchId, yourSide: 'right', participants, snapshot },
-          });
-          this.broadcastLobbyUpsert(left);
-          this.broadcastLobbyUpsert(right);
+        onMatchStarted: (matchId, left, right, snapshot, participants, rules) => {
+          if (!left.isBot) {
+            this.sendToPlayer(left.playerId, {
+              type: 'match.started',
+              protocolVersion: PROTOCOL_VERSION,
+              serverTime: Date.now(),
+              payload: { matchId, yourSide: 'left', participants, snapshot, rules },
+            });
+            this.broadcastLobbyUpsert(left);
+          }
+          if (!right.isBot) {
+            this.sendToPlayer(right.playerId, {
+              type: 'match.started',
+              protocolVersion: PROTOCOL_VERSION,
+              serverTime: Date.now(),
+              payload: { matchId, yourSide: 'right', participants, snapshot, rules },
+            });
+            this.broadcastLobbyUpsert(right);
+          }
         },
         onMatchSnapshot: (match, snapshot) => {
           const event: ServerEvent = {
@@ -219,7 +225,8 @@ export class WsGateway {
           }
         },
       },
-      options.disconnectGraceMs,
+      options.disconnectGraceMs ?? initialCfg.disconnectGraceMs,
+      this.configService,
     );
 
     this.wss = new WebSocketServer({
@@ -368,6 +375,17 @@ export class WsGateway {
     const isInput = cmd.type === 'match.input';
     if (!this.checkRateLimit(state, isInput)) {
       this.sendError(state.ws, cmd.requestId, 'RATE_LIMITED', 'Too many requests.', cmd.type);
+      return;
+    }
+
+    if (cmd.type === 'ping') {
+      this.send(state.ws, {
+        type: 'pong',
+        protocolVersion: PROTOCOL_VERSION,
+        serverTime: Date.now(),
+        requestId: cmd.requestId,
+        payload: { clientTime: cmd.payload.clientTime },
+      });
       return;
     }
 
@@ -620,6 +638,7 @@ export class WsGateway {
         lobby: this.sessions.getLobbySnapshot(),
         activeChallenge,
         activeMatch,
+        arenaConfig: this.configService.getPublicConfig(),
       },
     });
   }
@@ -736,6 +755,22 @@ export class WsGateway {
       protocolVersion: PROTOCOL_VERSION,
       serverTime: Date.now(),
       payload: { level, message },
+    };
+    for (const sock of this.socketsByPlayerId.values()) {
+      this.send(sock.ws, event);
+    }
+  }
+
+  applyRuntimeConfigUpdate(): void {
+    const cfg = this.configService.getConfig();
+    this.challenges.setExpiryMs(cfg.challengeExpiryMs);
+    this.matches.setDisconnectGraceMs(cfg.disconnectGraceMs);
+
+    const event: ServerEvent = {
+      type: 'config.updated',
+      protocolVersion: PROTOCOL_VERSION,
+      serverTime: Date.now(),
+      payload: { config: this.configService.getPublicConfig() },
     };
     for (const sock of this.socketsByPlayerId.values()) {
       this.send(sock.ws, event);

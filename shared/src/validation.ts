@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import {
   BUNDLED_AVATARS,
   DEFAULT_AVATAR_ID,
@@ -66,3 +67,68 @@ export function resolveAvatarUrl(avatarId: string): string {
 export function fallbackAvatarId(): string {
   return DEFAULT_AVATAR_ID;
 }
+
+export function validateHostIpInput(raw: string): { ok: true; value: string } | { ok: false; error: string } {
+  const trimmed = raw.trim().replace(/\/+$/, '');
+  if (!trimmed) {
+    return { ok: true, value: '' };
+  }
+  if (/[\s<>"'`\\]/.test(trimmed)) {
+    return { ok: false, error: 'Host IP / URL cannot contain spaces or special characters.' };
+  }
+
+  const candidateUrl =
+    trimmed.startsWith('http://') || trimmed.startsWith('https://')
+      ? trimmed
+      : `http://${trimmed}`;
+
+  try {
+    const parsed = new URL(candidateUrl);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return { ok: false, error: 'Only http:// or https:// host addresses are supported.' };
+    }
+    if (!parsed.hostname || parsed.username || parsed.password) {
+      return { ok: false, error: 'Enter a valid IPv4 address, hostname, or URL.' };
+    }
+    if (parsed.pathname !== '/' || parsed.search || parsed.hash) {
+      return { ok: false, error: 'Host address should not contain paths or query strings.' };
+    }
+    return { ok: true, value: trimmed };
+  } catch {
+    return { ok: false, error: 'Enter a valid IPv4 address, hostname, or URL (e.g. 192.168.1.42).' };
+  }
+}
+
+export const ArenaConfigSchema = z
+  .object({
+    paddleHeight: z.number().min(0.08).max(0.45),
+    paddleSpeed: z.number().min(0.3).max(2.5),
+    ballInitialSpeed: z.number().min(0.3).max(1.8),
+    ballSpeedIncrement: z.number().min(0).max(0.25),
+    ballMaxSpeed: z.number().min(0.5).max(3.0),
+    winScore: z.number().int().min(1).max(21),
+    initialCountdownMs: z.number().int().min(1000).max(10_000),
+    pointCountdownMs: z.number().int().min(500).max(5_000),
+    resumeCountdownMs: z.number().int().min(500).max(5_000),
+    challengeExpiryMs: z.number().int().min(5_000).max(120_000),
+    disconnectGraceMs: z.number().int().min(3_000).max(60_000),
+    hostIp: z.string().max(128),
+  })
+  .superRefine((val, ctx) => {
+    if (val.ballMaxSpeed < val.ballInitialSpeed) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['ballMaxSpeed'],
+        message: 'Max ball speed must be greater than or equal to initial ball speed.',
+      });
+    }
+    const hostCheck = validateHostIpInput(val.hostIp);
+    if (!hostCheck.ok) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['hostIp'],
+        message: hostCheck.error,
+      });
+    }
+  });
+

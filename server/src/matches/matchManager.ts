@@ -1,15 +1,12 @@
 import crypto from 'node:crypto';
 import {
   COUNTDOWN_PADDLE_UNLOCK_MS,
+  DEMO_PLAYER_ID,
   DISCONNECT_GRACE_MS,
-  INITIAL_COUNTDOWN_MS,
   MAX_CATCHUP_STEPS,
-  POINT_COUNTDOWN_MS,
-  RESUME_COUNTDOWN_MS,
   SIMULATION_DT_MS,
   SIMULATION_DT_SEC,
   SNAPSHOT_INTERVAL_TICKS,
-  WIN_SCORE,
 } from '../../../shared/src/constants.ts';
 import type {
   ActiveMatchSync,
@@ -18,9 +15,11 @@ import type {
   MatchParticipant,
   MatchPhase,
   MatchRematchState,
+  MatchRulesConfig,
   MatchSnapshot,
   PaddleSide,
 } from '../../../shared/src/types.ts';
+import { ServerConfigService } from '../config/serverConfig.ts';
 import {
   createInitialPhysics,
   resetBallForServe,
@@ -36,6 +35,7 @@ export interface MatchRecord {
   leftPlayerId: string;
   rightPlayerId: string;
   phase: MatchPhase;
+  rules: MatchRulesConfig;
   physics: PhysicsState;
   inputs: { left: PaddleInputDir; right: PaddleInputDir };
   lastSeq: { left: number; right: number };
@@ -60,7 +60,14 @@ export interface MatchRecord {
 }
 
 export interface MatchCallbacks {
-  onMatchStarted: (matchId: string, left: PlayerSession, right: PlayerSession, snapshot: MatchSnapshot, participants: [MatchParticipant, MatchParticipant]) => void;
+  onMatchStarted: (
+    matchId: string,
+    left: PlayerSession,
+    right: PlayerSession,
+    snapshot: MatchSnapshot,
+    participants: [MatchParticipant, MatchParticipant],
+    rules: MatchRulesConfig,
+  ) => void;
   onMatchSnapshot: (match: MatchRecord, snapshot: MatchSnapshot) => void;
   onMatchPhase: (match: MatchRecord, participants: [MatchParticipant, MatchParticipant]) => void;
   onMatchFinished: (
@@ -86,16 +93,23 @@ export class MatchManager {
   private readonly matches = new Map<string, MatchRecord>();
   private readonly sessions: SessionManager;
   private readonly callbacks: MatchCallbacks;
-  private readonly graceMs: number;
+  private readonly configService: ServerConfigService;
+  private graceMs: number;
 
   constructor(
     sessions: SessionManager,
     callbacks: MatchCallbacks,
     graceMs: number = DISCONNECT_GRACE_MS,
+    configService: ServerConfigService = new ServerConfigService(),
   ) {
     this.sessions = sessions;
     this.callbacks = callbacks;
     this.graceMs = graceMs;
+    this.configService = configService;
+  }
+
+  setDisconnectGraceMs(ms: number): void {
+    this.graceMs = ms;
   }
 
   getMatchById(matchId: string): MatchRecord | undefined {
@@ -117,6 +131,7 @@ export class MatchManager {
         avatarUrl: left?.avatarUrl ?? '/avatars/default.svg',
         side: 'left',
         connected: Boolean(left?.connected),
+        ...(left?.isBot ? { isBot: true } : {}),
       },
       {
         playerId: match.rightPlayerId,
@@ -125,6 +140,7 @@ export class MatchManager {
         avatarUrl: right?.avatarUrl ?? '/avatars/default.svg',
         side: 'right',
         connected: Boolean(right?.connected),
+        ...(right?.isBot ? { isBot: true } : {}),
       },
     ];
   }
@@ -189,6 +205,7 @@ export class MatchManager {
       participants: this.getParticipants(match),
       snapshot: this.toSnapshot(match),
       rematch: this.getRematchState(match),
+      rules: match.rules,
       winnerPlayerId: match.winnerPlayerId,
       outcomeReason: match.outcomeReason,
     };
@@ -198,29 +215,40 @@ export class MatchManager {
     const matchId = `mt_${crypto.randomBytes(8).toString('hex')}`;
     const nowEpoch = Date.now();
     const nowPerf = performance.now();
+    const demoSide: PaddleSide | null = rightPlayer.isBot
+      ? 'right'
+      : leftPlayer.isBot
+        ? 'left'
+        : null;
+    const rules = this.configService.buildMatchRules(demoSide);
 
-    leftPlayer.status = 'IN_GAME';
-    leftPlayer.priorStatus = 'IN_GAME';
-    leftPlayer.activeMatchId = matchId;
-    leftPlayer.activeChallengeId = null;
+    if (!leftPlayer.isBot) {
+      leftPlayer.status = 'IN_GAME';
+      leftPlayer.priorStatus = 'IN_GAME';
+      leftPlayer.activeMatchId = matchId;
+      leftPlayer.activeChallengeId = null;
+    }
 
-    rightPlayer.status = 'IN_GAME';
-    rightPlayer.priorStatus = 'IN_GAME';
-    rightPlayer.activeMatchId = matchId;
-    rightPlayer.activeChallengeId = null;
+    if (!rightPlayer.isBot) {
+      rightPlayer.status = 'IN_GAME';
+      rightPlayer.priorStatus = 'IN_GAME';
+      rightPlayer.activeMatchId = matchId;
+      rightPlayer.activeChallengeId = null;
+    }
 
     const match: MatchRecord = {
       matchId,
       leftPlayerId: leftPlayer.playerId,
       rightPlayerId: rightPlayer.playerId,
       phase: 'COUNTDOWN',
-      physics: createInitialPhysics('right'),
+      rules,
+      physics: createInitialPhysics('right', rules.ballInitialSpeed),
       inputs: { left: 0, right: 0 },
       lastSeq: { left: -1, right: -1 },
       score: { left: 0, right: 0 },
       tick: 0,
-      countdownEndsAt: nowEpoch + INITIAL_COUNTDOWN_MS,
-      countdownEndPerfMs: nowPerf + INITIAL_COUNTDOWN_MS,
+      countdownEndsAt: nowEpoch + rules.initialCountdownMs,
+      countdownEndPerfMs: nowPerf + rules.initialCountdownMs,
       countdownPaddlesUnlocked: false,
       pauseExpiresAt: null,
       disconnectedPlayerId: null,
@@ -241,7 +269,7 @@ export class MatchManager {
     const participants = this.getParticipants(match);
     const snapshot = this.toSnapshot(match);
 
-    this.callbacks.onMatchStarted(matchId, leftPlayer, rightPlayer, snapshot, participants);
+    this.callbacks.onMatchStarted(matchId, leftPlayer, rightPlayer, snapshot, participants, rules);
 
     match.loopTimer = setInterval(() => {
       this.tickMatch(match);
@@ -297,7 +325,7 @@ export class MatchManager {
             match.accumulatorMs -= SIMULATION_DT_MS;
             match.tick += 1;
             stepped = true;
-            stepPaddlesOnly(match.physics, match.inputs, SIMULATION_DT_SEC);
+            stepPaddlesOnly(match.physics, match.inputs, SIMULATION_DT_SEC, match.rules);
           }
 
           if (stepped) {
@@ -327,7 +355,7 @@ export class MatchManager {
       match.tick += 1;
       stepped = true;
 
-      const result = stepMatchPhysics(match.physics, match.inputs, SIMULATION_DT_SEC);
+      const result = stepMatchPhysics(match.physics, match.inputs, SIMULATION_DT_SEC, match.rules);
       if (result.scoredSide) {
         if (result.scoredSide === 'left') {
           match.score.left += 1;
@@ -335,18 +363,19 @@ export class MatchManager {
           match.score.right += 1;
         }
 
-        if (match.score.left >= WIN_SCORE || match.score.right >= WIN_SCORE) {
-          const winnerSide: PaddleSide = match.score.left >= WIN_SCORE ? 'left' : 'right';
+        if (match.score.left >= match.rules.winScore || match.score.right >= match.rules.winScore) {
+          const winnerSide: PaddleSide =
+            match.score.left >= match.rules.winScore ? 'left' : 'right';
           this.finishMatch(match, winnerSide, 'SCORE_LIMIT');
           return;
         }
 
         // Next serve countdown (serve toward player who was scored on)
         const serveToward: PaddleSide = result.scoredSide === 'left' ? 'right' : 'left';
-        resetBallForServe(match.physics, serveToward);
+        resetBallForServe(match.physics, serveToward, match.rules.ballInitialSpeed);
         match.phase = 'COUNTDOWN';
-        match.countdownEndsAt = Date.now() + POINT_COUNTDOWN_MS;
-        match.countdownEndPerfMs = performance.now() + POINT_COUNTDOWN_MS;
+        match.countdownEndsAt = Date.now() + match.rules.pointCountdownMs;
+        match.countdownEndPerfMs = performance.now() + match.rules.pointCountdownMs;
         match.countdownPaddlesUnlocked = false;
         match.accumulatorMs = 0;
         this.callbacks.onMatchPhase(match, this.getParticipants(match));
@@ -457,8 +486,8 @@ export class MatchManager {
         match.phase = 'COUNTDOWN';
         match.disconnectedPlayerId = null;
         match.pauseExpiresAt = null;
-        match.countdownEndsAt = Date.now() + RESUME_COUNTDOWN_MS;
-        match.countdownEndPerfMs = performance.now() + RESUME_COUNTDOWN_MS;
+        match.countdownEndsAt = Date.now() + match.rules.resumeCountdownMs;
+        match.countdownEndPerfMs = performance.now() + match.rules.resumeCountdownMs;
         match.countdownPaddlesUnlocked = false;
         match.accumulatorMs = 0;
         match.lastStepPerfMs = performance.now();
@@ -488,7 +517,7 @@ export class MatchManager {
     // Remove the timed-out disconnected session and release if both gone
     this.callbacks.onDisconnectGraceExpiredRemovePlayer(disconnectedPlayerId);
 
-    if (!winnerSession || !winnerSession.connected) {
+    if (!winnerSession || !winnerSession.connected || winnerSession.isBot) {
       this.closeMatch(match);
     }
   }
@@ -560,6 +589,12 @@ export class MatchManager {
 
     const otherId = match.leftPlayerId === playerId ? match.rightPlayerId : match.leftPlayerId;
     const other = this.sessions.getById(otherId);
+    if (match.rules.isDemoMatch && other?.isBot) {
+      match.rematchRequestedBy = playerId;
+      this.completeRematch(match, DEMO_PLAYER_ID);
+      return;
+    }
+
     if (!other || !other.connected || other.activeMatchId !== match.matchId) {
       match.rematchCancelled = true;
       this.callbacks.onMatchRematchUpdated(match, this.getRematchState(match));
@@ -605,7 +640,9 @@ export class MatchManager {
     const left = this.sessions.getById(oldMatch.leftPlayerId);
     const right = this.sessions.getById(oldMatch.rightPlayerId);
 
-    if (!left || !left.connected || !right || !right.connected) {
+    const leftOk = Boolean(left && (left.connected || left.isBot));
+    const rightOk = Boolean(right && (right.connected || right.isBot));
+    if (!left || !right || !leftOk || !rightOk) {
       oldMatch.rematchCancelled = true;
       this.callbacks.onMatchRematchUpdated(oldMatch, this.getRematchState(oldMatch));
       throw new MatchError('PLAYER_UNAVAILABLE', 'Opponent disconnected.');
@@ -678,8 +715,8 @@ export class MatchManager {
   private cleanupIfAbandoned(match: MatchRecord): void {
     const left = this.sessions.getById(match.leftPlayerId);
     const right = this.sessions.getById(match.rightPlayerId);
-    const leftDone = match.returnedToLobby.has(match.leftPlayerId) || !left;
-    const rightDone = match.returnedToLobby.has(match.rightPlayerId) || !right;
+    const leftDone = match.returnedToLobby.has(match.leftPlayerId) || !left || Boolean(left.isBot);
+    const rightDone = match.returnedToLobby.has(match.rightPlayerId) || !right || Boolean(right.isBot);
     if (leftDone && rightDone) {
       this.closeMatch(match);
     }

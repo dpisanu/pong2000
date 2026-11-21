@@ -7,12 +7,13 @@ import {
   PADDLE_SPEED,
   PADDLE_WIDTH,
 } from '../../shared/src/constants.ts';
-import type { MatchSnapshot, PaddleSide } from '../../shared/src/types.ts';
+import type { MatchRulesConfig, MatchSnapshot, PaddleSide } from '../../shared/src/types.ts';
 
 interface PongArenaCanvasProps {
   snapshot: MatchSnapshot;
   yourSide: PaddleSide;
   localDirectionRef: RefObject<-1 | 0 | 1>;
+  rules?: MatchRulesConfig;
 }
 
 interface SnapshotSample {
@@ -32,6 +33,7 @@ export function PongArenaCanvas({
   snapshot,
   yourSide,
   localDirectionRef,
+  rules,
 }: PongArenaCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const samplesRef = useRef<{ prev: SnapshotSample | null; curr: SnapshotSample | null }>({
@@ -40,11 +42,16 @@ export function PongArenaCanvas({
   });
   const trailRef = useRef<Array<{ x: number; y: number }>>([]);
   const yourSideRef = useRef<PaddleSide>(yourSide);
+  const rulesRef = useRef<MatchRulesConfig | undefined>(rules);
   const predictedSelfYRef = useRef<number | null>(null);
 
   useEffect(() => {
     yourSideRef.current = yourSide;
   }, [yourSide]);
+
+  useEffect(() => {
+    rulesRef.current = rules;
+  }, [rules]);
 
   useEffect(() => {
     const nowPerf = performance.now();
@@ -161,16 +168,21 @@ export function PongArenaCanvas({
         }
 
         // Visual-only client-side prediction for own paddle so key presses feel instant
+        const leftNormH = rulesRef.current?.leftPaddleHeight ?? PADDLE_HEIGHT;
+        const rightNormH = rulesRef.current?.rightPaddleHeight ?? PADDLE_HEIGHT;
+        const activePaddleSpeed = rulesRef.current?.paddleSpeed ?? PADDLE_SPEED;
+
         if (paddlesActive) {
-          const minY = PADDLE_HEIGHT / 2;
-          const maxY = 1 - PADDLE_HEIGHT / 2;
+          const selfNormH = yourSideRef.current === 'left' ? leftNormH : rightNormH;
+          const minY = selfNormH / 2;
+          const maxY = 1 - selfNormH / 2;
           const baseSelfY =
             predictedSelfYRef.current ??
             (yourSideRef.current === 'left'
               ? curr.snapshot.paddles.leftY
               : curr.snapshot.paddles.rightY);
           const dir = localDirectionRef.current ?? 0;
-          const nextSelfY = clamp(baseSelfY + dir * PADDLE_SPEED * dtSec, minY, maxY);
+          const nextSelfY = clamp(baseSelfY + dir * activePaddleSpeed * dtSec, minY, maxY);
           predictedSelfYRef.current = nextSelfY;
           if (yourSideRef.current === 'left') {
             leftY = nextSelfY;
@@ -208,8 +220,11 @@ export function PongArenaCanvas({
       ctx.restore();
 
       // Goal zone hairline accents
+      const leftNormH = rulesRef.current?.leftPaddleHeight ?? PADDLE_HEIGHT;
+      const rightNormH = rulesRef.current?.rightPaddleHeight ?? PADDLE_HEIGHT;
       const paddleW = PADDLE_WIDTH * w;
-      const paddleH = PADDLE_HEIGHT * h;
+      const leftPaddleH = leftNormH * h;
+      const rightPaddleH = rightNormH * h;
       const leftX = PADDLE_MARGIN_X * w;
       const rightX = (1 - PADDLE_MARGIN_X - PADDLE_WIDTH) * w;
 
@@ -217,14 +232,26 @@ export function PongArenaCanvas({
       const leftIsSelf = yourSideRef.current === 'left';
       ctx.fillStyle = leftIsSelf ? '#10b981' : '#e2e8f0';
       ctx.beginPath();
-      ctx.roundRect(leftX, leftY * h - paddleH / 2, paddleW, paddleH, Math.min(paddleW / 2, 6));
+      ctx.roundRect(
+        leftX,
+        leftY * h - leftPaddleH / 2,
+        paddleW,
+        leftPaddleH,
+        leftNormH >= 0.99 ? 2 : Math.min(paddleW / 2, 6),
+      );
       ctx.fill();
 
       // Right paddle
       const rightIsSelf = yourSideRef.current === 'right';
       ctx.fillStyle = rightIsSelf ? '#10b981' : '#e2e8f0';
       ctx.beginPath();
-      ctx.roundRect(rightX, rightY * h - paddleH / 2, paddleW, paddleH, Math.min(paddleW / 2, 6));
+      ctx.roundRect(
+        rightX,
+        rightY * h - rightPaddleH / 2,
+        paddleW,
+        rightPaddleH,
+        rightNormH >= 0.99 ? 2 : Math.min(paddleW / 2, 6),
+      );
       ctx.fill();
 
       // Ball trail when playing

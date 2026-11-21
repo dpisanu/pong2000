@@ -1,4 +1,8 @@
 import crypto from 'node:crypto';
+import {
+  DEMO_PLAYER_ID,
+  DEMO_PLAYER_NICKNAME,
+} from '../../../shared/src/constants.ts';
 import type { LobbyPlayer, PlayerStatus } from '../../../shared/src/types.ts';
 
 export interface PlayerSession {
@@ -16,12 +20,35 @@ export interface PlayerSession {
   socketId: string | null;
   disconnectExpiryTimer: ReturnType<typeof setTimeout> | null;
   createdAt: number;
+  isBot?: boolean;
 }
 
 export class SessionManager {
   private readonly sessions = new Map<string, PlayerSession>();
   private readonly recoveryIndex = new Map<string, string>();
   private readonly uploadTokenIndex = new Map<string, string>();
+
+  constructor(includeDemoBot = true) {
+    if (includeDemoBot) {
+      this.sessions.set(DEMO_PLAYER_ID, {
+        playerId: DEMO_PLAYER_ID,
+        recoveryToken: '',
+        uploadToken: '',
+        nickname: DEMO_PLAYER_NICKNAME,
+        avatarId: 'gallery:spin-owl',
+        avatarUrl: '/avatars/spin-owl.svg',
+        status: 'AVAILABLE',
+        priorStatus: 'AVAILABLE',
+        activeChallengeId: null,
+        activeMatchId: null,
+        connected: true,
+        socketId: null,
+        disconnectExpiryTimer: null,
+        createdAt: Date.now(),
+        isBot: true,
+      });
+    }
+  }
 
   private generateToken(): string {
     return crypto.randomBytes(24).toString('base64url');
@@ -75,7 +102,7 @@ export class SessionManager {
     if (!playerId) return null;
 
     const session = this.sessions.get(playerId);
-    if (!session) {
+    if (!session || session.isBot) {
       this.recoveryIndex.delete(params.recoveryToken);
       return null;
     }
@@ -144,7 +171,7 @@ export class SessionManager {
 
   markDisconnected(playerId: string): PlayerSession | undefined {
     const session = this.sessions.get(playerId);
-    if (!session) return undefined;
+    if (!session || session.isBot) return undefined;
     if (session.status !== 'DISCONNECTED') {
       session.priorStatus =
         session.status === 'IN_GAME'
@@ -161,7 +188,7 @@ export class SessionManager {
 
   removeSession(playerId: string): boolean {
     const session = this.sessions.get(playerId);
-    if (!session) return false;
+    if (!session || session.isBot) return false;
     if (session.disconnectExpiryTimer) {
       clearTimeout(session.disconnectExpiryTimer);
       session.disconnectExpiryTimer = null;
@@ -179,6 +206,7 @@ export class SessionManager {
       avatarId: session.avatarId,
       avatarUrl: session.avatarUrl,
       status: session.status,
+      ...(session.isBot ? { isBot: true } : {}),
     };
   }
 
@@ -188,6 +216,16 @@ export class SessionManager {
       list.push(this.toLobbyPlayer(session));
     }
     return list;
+  }
+
+  getConnectedHumanCount(): number {
+    let count = 0;
+    for (const session of this.sessions.values()) {
+      if (!session.isBot && session.connected) {
+        count += 1;
+      }
+    }
+    return count;
   }
 
   getAllSessions(): PlayerSession[] {

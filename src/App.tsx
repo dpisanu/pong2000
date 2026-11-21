@@ -1,12 +1,27 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Wifi, WifiOff, AlertCircle, X } from 'lucide-react';
+import {
+  BALL_INITIAL_SPEED,
+  BALL_MAX_SPEED,
+  BALL_SPEED_INCREMENT,
+  CHALLENGE_EXPIRY_MS,
+  DISCONNECT_GRACE_MS,
+  INITIAL_COUNTDOWN_MS,
+  PADDLE_HEIGHT,
+  PADDLE_SPEED,
+  POINT_COUNTDOWN_MS,
+  RESUME_COUNTDOWN_MS,
+  WIN_SCORE,
+} from '../shared/src/constants.ts';
 import type { ServerEvent } from '../shared/src/protocol.ts';
 import type {
   ActiveMatchSync,
   ChallengeInfo,
   LobbyPlayer,
   PlayerProfile,
+  PublicArenaConfig,
 } from '../shared/src/types.ts';
+import { AdminView } from './admin/AdminView.tsx';
 import { LanShareModal } from './components/LanShareModal.tsx';
 import { MatchView } from './game/MatchView.tsx';
 import { LobbyView } from './lobby/LobbyView.tsx';
@@ -22,12 +37,34 @@ import {
   updateStoredRecoveryToken,
 } from './storage/profileStorage.ts';
 
+const DEFAULT_PUBLIC_CONFIG: PublicArenaConfig = {
+  paddleHeight: PADDLE_HEIGHT,
+  paddleSpeed: PADDLE_SPEED,
+  ballInitialSpeed: BALL_INITIAL_SPEED,
+  ballSpeedIncrement: BALL_SPEED_INCREMENT,
+  ballMaxSpeed: BALL_MAX_SPEED,
+  winScore: WIN_SCORE,
+  initialCountdownMs: INITIAL_COUNTDOWN_MS,
+  pointCountdownMs: POINT_COUNTDOWN_MS,
+  resumeCountdownMs: RESUME_COUNTDOWN_MS,
+  challengeExpiryMs: CHALLENGE_EXPIRY_MS,
+  disconnectGraceMs: DISCONNECT_GRACE_MS,
+};
+
+function readRoute(): '/' | '/admin' {
+  const normalized = window.location.pathname.replace(/\/+$/, '') || '/';
+  return normalized === '/admin' ? '/admin' : '/';
+}
+
 export default function App() {
+  const [route, setRoute] = useState<'/' | '/admin'>(() => readRoute());
   const [savedProfile, setSavedProfile] = useState<PlayerProfile | null>(() => {
     const stored = loadStoredProfile();
     return stored ? { nickname: stored.nickname, avatarId: stored.avatarId } : null;
   });
   const [connectionState, setConnectionState] = useState<ConnectionState>('DISCONNECTED');
+  const [pingMs, setPingMs] = useState<number | null>(null);
+  const [arenaConfig, setArenaConfig] = useState<PublicArenaConfig>(DEFAULT_PUBLIC_CONFIG);
   const [selfPlayerId, setSelfPlayerId] = useState<string | null>(null);
   const [uploadToken, setUploadToken] = useState<string | null>(null);
   const [lobbyPlayers, setLobbyPlayers] = useState<LobbyPlayer[]>([]);
@@ -54,6 +91,32 @@ export default function App() {
     selfPlayerIdRef.current = selfPlayerId;
   }, [selfPlayerId]);
 
+  useEffect(() => {
+    const onPopState = () => setRoute(readRoute());
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
+
+  const navigateTo = useCallback((nextRoute: '/' | '/admin') => {
+    if (window.location.pathname !== nextRoute) {
+      window.history.pushState({}, '', nextRoute);
+    }
+    setRoute(nextRoute);
+  }, []);
+
+  const refreshPublicConfig = useCallback(() => {
+    fetch('/api/config')
+      .then((res) => (res.ok ? (res.json() as Promise<PublicArenaConfig>) : null))
+      .then((cfg) => {
+        if (cfg) setArenaConfig(cfg);
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    refreshPublicConfig();
+  }, [refreshPublicConfig]);
+
   const showBanner = useCallback((level: 'error' | 'info', message: string) => {
     setBanner({ level, message });
   }, []);
@@ -70,6 +133,7 @@ export default function App() {
             lobby,
             activeChallenge: nextChallenge,
             activeMatch: nextMatch,
+            arenaConfig: nextConfig,
           } = event.payload;
 
           setSelfPlayerId(playerId);
@@ -77,6 +141,7 @@ export default function App() {
           setLobbyPlayers(lobby);
           setActiveChallenge(nextChallenge);
           setActiveMatch(nextMatch);
+          if (nextConfig) setArenaConfig(nextConfig);
           setProfileServerError(null);
           setSavingProfile(false);
 
@@ -114,6 +179,10 @@ export default function App() {
                 );
               });
           }
+          break;
+        }
+        case 'config.updated': {
+          setArenaConfig(event.payload.config);
           break;
         }
         case 'lobby.snapshot': {
@@ -159,6 +228,7 @@ export default function App() {
             yourSide: event.payload.yourSide,
             participants: event.payload.participants,
             snapshot: event.payload.snapshot,
+            rules: event.payload.rules,
             rematch: {
               matchId: event.payload.matchId,
               requestedByPlayerId: null,
@@ -288,6 +358,9 @@ export default function App() {
       onConnectionState: (state) => {
         setConnectionState(state);
       },
+      onLatency: (nextPing) => {
+        setPingMs(nextPing);
+      },
       onEvent: handleServerEvent,
       onTransportError: (msg) => showBanner('error', msg),
     });
@@ -360,8 +433,8 @@ export default function App() {
     setActiveMatch(null);
   }, []);
 
-  // Show onboarding screen until player configures a unique nickname & avatar
-  if (!savedProfile) {
+  // Show onboarding screen until player configures a unique nickname & avatar (unless visiting /admin directly)
+  if (route !== '/admin' && !savedProfile) {
     const stored = loadStoredProfile();
     return (
       <ProfileSetupView
@@ -382,38 +455,75 @@ export default function App() {
     <div className="min-h-screen bg-[#0d131a] text-slate-100 flex flex-col">
       {/* 3-Zone Top Bar */}
       <header className="border-b border-white/10 bg-[#111922]">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between gap-8">
-          <span className="font-display text-2xl font-bold tracking-tight text-slate-100 whitespace-nowrap shrink-0">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between gap-3 sm:gap-8">
+          <button
+            type="button"
+            onClick={() => navigateTo('/')}
+            className="font-display text-xl sm:text-2xl font-bold tracking-tight text-slate-100 hover:text-white transition-colors whitespace-nowrap shrink-0 text-left"
+          >
             LAN Pong Arena
-          </span>
+          </button>
 
-          <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-slate-300">
-            <span className="inline-flex items-center gap-2 whitespace-nowrap shrink-0">
-              {connectionState === 'CONNECTED' ? (
-                <>
-                  <Wifi className="w-4 h-4 text-emerald-400" />
-                  <span className="text-slate-200">Connected</span>
-                </>
-              ) : (
-                <>
-                  <WifiOff className="w-4 h-4 text-amber-400" />
-                  <span className="text-amber-300">
-                    {connectionState === 'RECONNECTING' ? 'Reconnecting…' : 'Connecting…'}
-                  </span>
-                </>
-              )}
-            </span>
+          <nav className="flex items-center gap-3 sm:gap-6 text-sm font-medium text-slate-300">
+            {savedProfile && (
+              <span className="inline-flex items-center gap-2 whitespace-nowrap shrink-0">
+                {connectionState === 'CONNECTED' ? (
+                  <>
+                    <Wifi className="w-4 h-4 text-emerald-400" />
+                    <span className="text-slate-200">Connected</span>
+                    {pingMs !== null && (
+                      <>
+                        <span className="text-slate-500" aria-hidden="true">
+                          ·
+                        </span>
+                        <span
+                          className={`font-mono-tabular text-xs ${
+                            pingMs >= 100
+                              ? 'text-red-400'
+                              : pingMs >= 50
+                                ? 'text-amber-300'
+                                : 'text-emerald-400'
+                          }`}
+                        >
+                          {pingMs} ms
+                          {pingMs >= 100 ? ' lag' : ''}
+                        </span>
+                      </>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <WifiOff className="w-4 h-4 text-amber-400" />
+                    <span className="text-amber-300">
+                      {connectionState === 'RECONNECTING' ? 'Reconnecting…' : 'Connecting…'}
+                    </span>
+                  </>
+                )}
+              </span>
+            )}
 
-            {!activeMatch && (
+            {route === '/' && !activeMatch && savedProfile && (
               <button
                 type="button"
                 onClick={() => {
                   setProfileServerError(null);
                   setEditingProfile(true);
                 }}
-                className="hover:text-white transition-colors whitespace-nowrap shrink-0"
+                className="hidden sm:inline-block hover:text-white transition-colors whitespace-nowrap shrink-0"
               >
                 Edit Profile
+              </button>
+            )}
+
+            {!activeMatch && (
+              <button
+                type="button"
+                onClick={() => navigateTo(route === '/admin' ? '/' : '/admin')}
+                className={`hover:text-white transition-colors whitespace-nowrap shrink-0 ${
+                  route === '/admin' ? 'text-emerald-400' : ''
+                }`}
+              >
+                {route === '/admin' ? 'Lobby' : 'Admin'}
               </button>
             )}
           </nav>
@@ -431,7 +541,7 @@ export default function App() {
       </header>
 
       {/* Connection warning or error notice */}
-      {connectionState === 'RECONNECTING' && (
+      {connectionState === 'RECONNECTING' && savedProfile && (
         <div
           role="status"
           className="bg-amber-950/60 border-b border-amber-500/30 px-6 py-2.5 text-center text-xs font-medium text-amber-200"
@@ -466,12 +576,18 @@ export default function App() {
         </div>
       )}
 
-      {/* Main Content: Match Arena or Live Lobby */}
+      {/* Main Content: Admin Console, Match Arena, or Live Lobby */}
       <div className="flex-1">
-        {activeMatch && selfPlayerId ? (
+        {route === '/admin' ? (
+          <AdminView
+            onBackToArena={() => navigateTo('/')}
+            onConfigSaved={refreshPublicConfig}
+          />
+        ) : activeMatch && selfPlayerId ? (
           <MatchView
             match={activeMatch}
             selfPlayerId={selfPlayerId}
+            pingMs={pingMs}
             onSendInput={handleSendInput}
             onLeaveMatch={handleLeaveMatch}
             onRequestRematch={handleRequestRematch}
@@ -483,6 +599,7 @@ export default function App() {
             selfPlayerId={selfPlayerId}
             players={lobbyPlayers}
             activeChallenge={activeChallenge}
+            arenaConfig={arenaConfig}
             connected={connectionState === 'CONNECTED'}
             onChallenge={(targetId) => clientRef.current?.createChallenge(targetId)}
             onAcceptChallenge={(id) => clientRef.current?.acceptChallenge(id)}
@@ -497,7 +614,7 @@ export default function App() {
         )}
       </div>
 
-      {editingProfile && (
+      {editingProfile && savedProfile && (
         <ProfileSetupView
           mode="edit"
           initialProfile={savedProfile}
@@ -515,7 +632,12 @@ export default function App() {
         />
       )}
 
-      {shareOpen && <LanShareModal onClose={() => setShareOpen(false)} />}
+      {shareOpen && (
+        <LanShareModal
+          onClose={() => setShareOpen(false)}
+          onOpenAdmin={() => navigateTo('/admin')}
+        />
+      )}
     </div>
   );
 }

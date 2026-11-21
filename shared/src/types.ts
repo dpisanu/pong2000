@@ -53,6 +53,7 @@ export interface LobbyPlayer {
   avatarId: string;
   avatarUrl: string;
   status: PlayerStatus;
+  isBot?: boolean;
 }
 
 export interface ChallengeInfo {
@@ -75,6 +76,7 @@ export interface MatchParticipant {
   avatarUrl: string;
   side: PaddleSide;
   connected: boolean;
+  isBot?: boolean;
 }
 
 export interface MatchSnapshot {
@@ -109,12 +111,46 @@ export interface MatchRematchState {
   status: 'NONE' | 'PENDING' | 'ACCEPTED' | 'CANCELLED';
 }
 
+export interface ArenaConfig {
+  paddleHeight: number;
+  paddleSpeed: number;
+  ballInitialSpeed: number;
+  ballSpeedIncrement: number;
+  ballMaxSpeed: number;
+  winScore: number;
+  initialCountdownMs: number;
+  pointCountdownMs: number;
+  resumeCountdownMs: number;
+  challengeExpiryMs: number;
+  disconnectGraceMs: number;
+  hostIp: string;
+}
+
+export type PublicArenaConfig = Omit<ArenaConfig, 'hostIp'>;
+
+export interface MatchRulesConfig {
+  paddleHeight: number;
+  leftPaddleHeight: number;
+  rightPaddleHeight: number;
+  paddleSpeed: number;
+  ballInitialSpeed: number;
+  ballSpeedIncrement: number;
+  ballMaxSpeed: number;
+  winScore: number;
+  initialCountdownMs: number;
+  pointCountdownMs: number;
+  resumeCountdownMs: number;
+  isDemoMatch: boolean;
+  demoSide: PaddleSide | null;
+}
+
 export interface ActiveMatchSync {
   matchId: string;
   yourSide: PaddleSide;
   participants: [MatchParticipant, MatchParticipant];
   snapshot: MatchSnapshot;
   rematch: MatchRematchState;
+  rules?: MatchRulesConfig;
   winnerPlayerId?: string | null;
   outcomeReason?: MatchOutcomeReason | null;
 }

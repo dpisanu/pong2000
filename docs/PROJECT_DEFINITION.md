@@ -1,6 +1,6 @@
 # LAN Pong Arena — Project Definition
 
-**Version:** 1.01  
+**Version:** 1.10  
 **Status:** Implemented MVP+ specification  
 **Date:** 2026-11-21  
 **Deployment:** Docker on a LAN host  
@@ -50,13 +50,14 @@ LAN Pong Arena is a self-hosted, browser-native, two-player Pong application for
 - Editing the profile updates lobby presence only after server validation succeeds; rejected edits (such as duplicate nicknames) keep the editor open with inline feedback and do not overwrite saved preferences. Changing an avatar does not interrupt a match.
 - No password, registration, or identity verification.
 
-### F2. Live lobby
+### F2. Live lobby & Demo mode
 - Show connected players with nickname, avatar, and status (`AVAILABLE`, `INVITED`, `IN_GAME`, `DISCONNECTED`).
+- Include a built-in virtual **Demo Player** (`bot_demo_player`) that remains `AVAILABLE` in the lobby and auto-accepts challenges so any solo player can immediately test paddle movement and angled ball bounces.
 - Provide client-side filtering between `All Players` and `Available Only`.
 - Update the list automatically via WebSocket events; no manual refresh.
-- Do not allow challenging oneself, offline players, or players not `AVAILABLE`.
-- Multiple concurrent games are supported; the lobby reflects player availability accurately.
-- Display a clear server-connection indicator and reconnecting state.
+- Do not allow challenging oneself, offline players, or human players not `AVAILABLE`.
+- Multiple concurrent games (including concurrent Demo matches for different players) are supported; the lobby reflects player availability accurately.
+- Display a clear server-connection indicator, live WebSocket round-trip ping latency (`ms`), and reconnecting state.
 
 ### F3. Challenges
 - An available player may invite one other available player.
@@ -66,14 +67,15 @@ LAN Pong Arena is a self-hosted, browser-native, two-player Pong application for
 - Challenge outcomes are sent to both affected players, with structured error codes for invalid operations.
 - On acceptance, create a match and assign paddle sides; notify both clients.
 
-### F4. Pong gameplay
+### F4. Pong gameplay & Demo mode
 - Classic 2D Pong on a `16:10` logical arena: one paddle per player, ball, walls, swept/sub-stepped collision response, scores, center serve.
 - Desktop controls: `W`/`S` and `ArrowUp`/`ArrowDown`; prevent browser scrolling (`ArrowUp`, `ArrowDown`, `Space`) while match controls are active. Keyboard listeners remain mounted stably across 30 Hz snapshots (ref-backed dispatch, `e.repeat` ignored) so initial key presses register immediately without spurious direction resets.
-- Server is authoritative for paddle positions, ball physics, collision detection, scoring, and win condition.
+- Server is authoritative for paddle positions, ball physics, collision detection, scoring, and win condition, using the configured runtime `MatchRulesConfig` snapshot at match creation.
+- **Demo Mode:** Challenging `Demo Player` spawns a server-authoritative practice match in which the `Demo Player` paddle spans the complete vertical height (`1.0`) of its court side, returning every incoming shot with natural hit-offset bounce angles so players can practice movement and ball control. Supports instant side-swapped rematch and standard leave/return-to-lobby cleanup.
 - Fixed simulation timestep: 60 Hz (`4` collision substeps per tick to prevent ball tunneling). Broadcast snapshots at 30 Hz (every 2 ticks). Browser renders via `requestAnimationFrame`, interpolating between snapshots and applying visual-only client-side prediction for the player's own paddle reconciled smoothly against authoritative snapshots.
-- First to 5 points wins; show scores, avatars, side indicator, and opponent connection status in an unobtrusive top HUD.
+- Default first to 5 points wins (configurable via `/admin` from 1 to 21); show scores, avatars, side indicator, live ping latency (`ms`), and opponent connection status in the match HUD.
 - Synthesized Web Audio API sound effects (paddle hits, wall bounces, countdown ticks, point chimes, match finish) with a mute/unmute toggle in the match HUD; zero external audio assets.
-- Ball serves after a short countdown (`3s` initial, `1.5s` after a point, `2s` on reconnect resume). Paddles unlock for the final `1s` of the countdown (`COUNTDOWN_PADDLE_UNLOCK_MS = 1000`, i.e., from second 2 onward in the initial 3-second countdown), indicated by an emerald `1` and **"Paddles active — position now"** overlay so players get a 1-second head start to anticipate the serve before the ball moves. Use deterministic bounded speeds and hit-offset bounce angles.
+- Ball serves after a configurable short countdown (default `3s` initial, `1.5s` after a point, `2s` on reconnect resume). Paddles unlock for the final `1s` of the countdown (`COUNTDOWN_PADDLE_UNLOCK_MS = 1000`, i.e., from second 2 onward in the initial 3-second countdown), indicated by an emerald `1` and **"Paddles active — position now"** overlay so players get a 1-second head start to anticipate the serve before the ball moves. Use deterministic bounded speeds and hit-offset bounce angles.
 - Client sends directional intent (`-1`, `0`, `1`) with monotonic `seq` only on state changes; clears intent on window blur/visibility loss.
 - Input is associated with the authenticated WebSocket session; clients cannot control another player's paddle.
 
@@ -93,21 +95,22 @@ LAN Pong Arena is a self-hosted, browser-native, two-player Pong application for
 - If a player disconnects while available or invited, cancel their active invitation immediately and remove the lobby entry after a brief refresh window (3 seconds) if not recovered.
 - On server restart, volatile sessions and matches are reset. Clients recover to profile/lobby state, not the old match.
 
-### F7. LAN hosting
+### F7. LAN hosting & `/admin` console
 - Package server and built frontend into one Docker image (`app.Dockerfile` referenced by `compose.yaml`, plus `Dockerfile`), exposing port `3000/TCP` and mounting named volume `avatars_data` at `/data/avatars`.
 - Bind the HTTP/WebSocket listener to `0.0.0.0` inside the container.
-- Provide `/healthz` endpoint and Docker healthcheck.
+- Provide `/healthz` endpoint (counting connected human players and active matches) and Docker healthcheck.
 - Client connects to WebSocket using the page's current host and appropriate `ws:`/`wss:` scheme; never hardcode `localhost` or a LAN IP.
-- **Host LAN IP Discovery & Share Dialog (v1.01):** `/api/server-info` prioritizes `PUBLIC_URL`, then the incoming non-loopback `Host`/`X-Forwarded-Host` header, then non-container LAN IPv4 interfaces—explicitly filtering out link-local (`169.254.x.x`) and Docker bridge (`172.16.0.0/12`) addresses when running inside a container. The **Share LAN URL** modal displays a copyable URL and an offline-generated QR code, and provides an inline Host LAN IP entry field when opened via `localhost` inside Docker without `PUBLIC_URL`.
+- **Admin Configuration Console (`/admin` & `/api/admin/*`):** Protected by `ADMIN_PASSCODE` (or a one-time first-run passcode setup when unset, with in-memory bearer tokens and login attempt throttling). Allows operators to configure runtime paddle length, paddle speed, ball initial/increment/max speeds, game rounds (`winScore`), countdown/challenge/disconnect timeout values, and an explicit Host IP/URL.
+- **Host LAN IP Discovery & Share Dialog:** `/api/server-info` prioritizes the Admin-configured Host IP / `PUBLIC_URL`, then the incoming non-loopback `Host`/`X-Forwarded-Host` header, then non-container LAN IPv4 interfaces—explicitly filtering out link-local (`169.254.x.x`) and Docker bridge (`172.16.0.0/12`) addresses when running inside a container. The **Share LAN URL** modal displays a copyable URL and an offline-generated QR code without inline error boxes or inline IP inputs; if no external IP is detected, it links cleanly to **Open Admin**.
 - No internet connectivity required after images and dependencies have been built/pulled. Document offline image preparation (`docker save` / `docker load`).
 - The Docker host firewall must allow the exposed port; include troubleshooting instructions.
 
 ## 5. Out of scope
 
-- User accounts, passwords, OAuth, social sign-in, verified identity.
+- User accounts, passwords, OAuth, social sign-in, verified identity (beyond the single operator `/admin` passcode).
 - Internet access, cloud hosting, public matchmaking, NAT traversal, WebRTC peer connections.
 - Mobile/touch controls, gamepads, accessibility certification (basic keyboard/focus/contrast still expected).
-- Spectators, bots, tournaments, chat, global leaderboard, permanent match history, achievements.
+- Spectators, human-like AI bots, tournaments, chat, global leaderboard, permanent match history, achievements (only the full-height static `Demo Player` practice paddle is included).
 - Distributed servers, horizontal scaling, external databases, Redis, Kubernetes.
 - Arbitrary profile files or animated avatars; only validated/re-encoded raster images.
 - Guaranteed session/match continuity across container restarts.
@@ -158,8 +161,8 @@ Desktop Browser A                  Desktop Browser B
 
 ```text
 lan-pong-arena/
-  src/{audio,components,game,lobby,network,profile,storage}/
-  server/src/{avatars,challenges,engine,http,matches,sessions,ws}/
+  src/{admin,audio,components,game,lobby,network,profile,storage}/
+  server/src/{avatars,challenges,config,engine,http,matches,sessions,ws}/
   shared/src/{constants,protocol,types,validation}/
   public/avatars/
   tests/{unit,integration}/
@@ -178,14 +181,21 @@ lan-pong-arena/
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/` | Serve browser app |
+| GET | `/` & `/admin` | Serve browser app (lobby/arena and operator admin console SPA routes) |
 | GET | `/healthz` | Readiness/health status (`status`, `uptimeSeconds`, `activePlayers`, `activeMatches`) |
-| GET | `/api/server-info` | Return prioritized host LAN URLs, port, and container hint flags |
+| GET | `/api/server-info` | Return prioritized host LAN URLs, port, and container detection metadata |
+| GET | `/api/config` | Return current public gameplay rules (excludes admin-only `hostIp` setting) |
+| GET | `/api/admin/status` | Check whether first-run passcode setup is needed and verify Bearer session |
+| POST | `/api/admin/setup` | One-time first-run passcode creation when `ADMIN_PASSCODE` is unset (returns Bearer token) |
+| POST | `/api/admin/login` | Rate-limited passcode authentication returning in-memory admin Bearer token |
+| POST | `/api/admin/logout` | Revoke current admin Bearer token |
+| GET/PUT | `/api/admin/config` | Authenticated read/update of runtime physics, rounds, timeouts, and `hostIp` |
+| POST | `/api/admin/config/reset` | Authenticated reset of runtime configuration to server defaults |
 | POST | `/api/avatars` | Bearer-authenticated binary image upload (`PNG`/`JPEG`/`WebP` ≤ 1 MiB); returns `avatarId` & `avatarUrl` |
 | GET | `/api/avatars/:id` | Serve processed WebP image with `nosniff` and immutable caching |
 | GET | `/ws` | WebSocket upgrade on same host/port |
 
-Avatar upload authorization uses the server-issued `uploadToken` held in client memory and sent in the `Authorization: Bearer <token>` header. Tokens are never logged or placed in URLs. Upload rate limits (`6` uploads / 60s) and per-session stored avatar caps (`2` files, pruning oldest) prevent unbounded storage.
+Avatar and Admin authorization use memory-held bearer tokens sent in the `Authorization: Bearer <token>` header. Tokens are never logged or placed in URLs. Upload rate limits (`6` uploads / 60s), stored avatar caps (`2` files per session), and admin login throttling (`8` attempts / 60s per IP) protect server resources.
 
 ## 8. WebSocket protocol
 
@@ -238,17 +248,20 @@ Coordinates are normalized to the logical playfield (`0–1`); paddle Y coordina
 | `match.rematch.request` | `matchId` | Request rematch |
 | `match.rematch.accept` | `matchId` | Accept pending rematch |
 | `lobby.join` | none | Return to lobby after match closure |
+| `ping` | `clientTime` | Application-level latency probe answered with `pong` |
 
 ### Server → client events
 
 | Type | Purpose |
 |---|---|
-| `session.ready` | Player ID, fresh recovery token, memory-only upload token, full lobby/match resync state |
-| `lobby.snapshot` | Initial authoritative roster |
+| `session.ready` | Player ID, fresh recovery token, memory-only upload token, `arenaConfig`, full lobby/match resync state |
+| `config.updated` | Broadcast updated `PublicArenaConfig` whenever an admin saves or resets settings |
+| `pong` | Echo `clientTime` and `requestId` so clients measure live WebSocket round-trip ping (`ms`) |
+| `lobby.snapshot` | Initial authoritative roster (includes `Demo Player`) |
 | `lobby.player.upsert` / `lobby.player.remove` | Incremental presence changes |
 | `challenge.received` | Incoming invitation and expiration |
 | `challenge.updated` | Accepted/declined/cancelled/expired/invalidated and reason |
-| `match.started` | Match ID, side assignment, participants, initial state |
+| `match.started` | Match ID, side assignment, participants, `MatchRulesConfig`, initial state |
 | `match.snapshot` | Tick-stamped authoritative state |
 | `match.phase` | Countdown, paused, resumed, finished |
 | `match.finished` | Winner, final score, outcome reason |
@@ -384,16 +397,18 @@ Performance values are design targets to verify on real hardware, not guaranteed
 - [x] **A13 Forfeit:** A player who does not reconnect within 10 seconds forfeits; the other player is notified and can return to lobby.
 - [x] **A14 Multiple matches:** Two separate pairs play concurrently without receiving each other's private snapshots.
 - [x] **A15 Restart:** Restarting the container clears active matches but retains stored avatars and browser-local profiles.
-- [x] **A16 LAN & Share URL (v1.01):** The app is usable from two LAN devices without internet access; **Share LAN URL** displays the real host LAN URL (from `PUBLIC_URL`, non-loopback `Host` header, or host network interface) and offline QR code without exposing Docker container bridge (`172.16–31.x.x`) or link-local (`169.254.x.x`) IPs, and offers an inline host IP input when accessed via `localhost` in Docker.
+- [x] **A16 LAN & Share URL (v1.01):** The app is usable from two LAN devices without internet access; **Share LAN URL** displays the real host LAN URL (from Admin `hostIp`/`PUBLIC_URL`, non-loopback `Host` header, or host network interface) and offline QR code without exposing Docker container bridge (`172.16–31.x.x`) or link-local (`169.254.x.x`) IPs, and omits error boxes or inline IP forms (linking instead to **Open Admin** when no external IP is detected).
 - [x] **A17 Validation:** Invalid commands, malformed messages, unauthorized match input, and invalid uploads do not crash the server.
+- [x] **A18 Admin Configuration (`/admin`):** Operators authenticate via `ADMIN_PASSCODE` or first-run passcode setup and configure paddle length, paddle speed, ball velocities, game rounds, timeouts, and Host IP; changes take effect for new matches and broadcast to connected clients.
+- [x] **A19 Demo Mode & Ping Readout:** Players can challenge `Demo Player` from the lobby to enter an immediate practice match against a full-height (`1.0`) opponent paddle, and can inspect their live server round-trip ping latency (`ms`) in both the Top Bar and Match HUD.
 
 ### Engineering definition of done
 - [x] Clean Docker build (`app.Dockerfile`) and Compose startup (`compose.yaml`) from README instructions.
-- [x] Unit tests cover wall/paddle collision, anti-tunneling, score, `stepPaddlesOnly` & `MatchManager` countdown paddle head-start timing, nickname/avatar validation, WebP sanitization, and LAN URL filtering (`tests/unit/`).
-- [x] Integration tests cover challenge race, expiry, disconnect timeout, reconnect recovery, match isolation, and unique nickname enforcement (`tests/integration/`).
+- [x] Unit tests cover wall/paddle collision, anti-tunneling, full-height Demo paddle rebounds, score, `stepPaddlesOnly` & `MatchManager` countdown paddle head-start timing, nickname/avatar validation, `ServerConfigService` & `AdminAuthService`, WebP sanitization, and LAN URL filtering (`tests/unit/`).
+- [x] Integration tests cover challenge race, expiry, disconnect timeout, reconnect recovery, match isolation, unique nickname enforcement, `ping`/`pong`, Demo Player auto-accept matches, and `/api/admin/*` endpoints (`tests/integration/`).
 - [x] Verified on Docker Compose LAN host (`/healthz`, container build, multi-client play).
 - [x] No runtime dependency on external APIs, hosted assets, or cloud services.
-- [x] README includes configuration, startup, sharing LAN URL, offline `docker save`/`load`, licensing (MIT `LICENSE`), and troubleshooting.
+- [x] README includes configuration, startup, `/admin` usage, Demo Mode, sharing LAN URL, offline `docker save`/`load`, licensing (MIT `LICENSE`), and troubleshooting.
 
 ## 14. Implementation milestones
 
@@ -415,10 +430,12 @@ Performance values are design targets to verify on real hardware, not guaranteed
 | Conflicting invitations cause duplicate matches | Central atomic reservation/state transition |
 | Uploads create security/storage problems | Re-encode to 256×256 WebP, 1 MiB cap, opaque IDs, rate limits, per-session pruning |
 | Simulation jitter | Fixed 60 Hz timestep, bounded catch-up, client snapshot interpolation |
-| Docker Share URL shows internal bridge IP | Prioritize `PUBLIC_URL` & non-loopback `Host` header, filter `172.16–31.x.x` in container, inline IP input |
+| Docker Share URL shows internal bridge IP | Prioritize Admin `hostIp` / `PUBLIC_URL` & non-loopback `Host` header, filter `172.16–31.x.x` in container, link to `/admin` |
 | Project archive drops extensionless `Dockerfile` | Provide `app.Dockerfile` referenced by `compose.yaml` alongside `Dockerfile` |
 | Duplicate player names confuse lobby/matches | Case-insensitive unique nickname enforcement in `SessionManager` & `WsGateway` |
 | Initial paddle key presses feel sluggish or miss | Keep keyboard listeners ref-stable across snapshots, ignore `e.repeat`, add client visual prediction, and unlock paddles 1s before serve |
+| Solo players want to test controls & bounces alone | Virtual `Demo Player` auto-accepts challenges with a full-height (`1.0`) rebounding paddle |
+| Players suspect Wi-Fi/network lag | 2-second WebSocket `ping`/`pong` RTT indicator displayed in Top Bar and Match HUD |
 
 ## 16. Resolved implementation choices
 

@@ -8,8 +8,10 @@ import type {
   MatchParticipant,
   MatchPhase,
   MatchRematchState,
+  MatchRulesConfig,
   MatchSnapshot,
   PaddleSide,
+  PublicArenaConfig,
 } from './types.ts';
 
 const RequestIdSchema = z.string().min(1).max(64);
@@ -97,6 +99,13 @@ export const ClientCommandSchema = z.discriminatedUnion('type', [
     requestId: RequestIdSchema,
     payload: z.object({}).optional(),
   }),
+  z.object({
+    type: z.literal('ping'),
+    requestId: RequestIdSchema,
+    payload: z.object({
+      clientTime: z.number(),
+    }),
+  }),
 ]);
 
 export type ClientCommand = z.infer<typeof ClientCommandSchema>;
@@ -119,6 +128,7 @@ export type ServerEvent =
         lobby: LobbyPlayer[];
         activeChallenge: ChallengeInfo | null;
         activeMatch: ActiveMatchSync | null;
+        arenaConfig?: PublicArenaConfig;
       };
     }
   | {
@@ -170,6 +180,7 @@ export type ServerEvent =
         yourSide: PaddleSide;
         participants: [MatchParticipant, MatchParticipant];
         snapshot: MatchSnapshot;
+        rules?: MatchRulesConfig;
       };
     }
   | {
@@ -241,5 +252,22 @@ export type ServerEvent =
       payload: {
         level: 'info' | 'warning';
         message: string;
+      };
+    }
+  | {
+      type: 'pong';
+      protocolVersion: number;
+      serverTime: number;
+      requestId: string;
+      payload: {
+        clientTime: number;
+      };
+    }
+  | {
+      type: 'config.updated';
+      protocolVersion: number;
+      serverTime: number;
+      payload: {
+        config: PublicArenaConfig;
       };
     };

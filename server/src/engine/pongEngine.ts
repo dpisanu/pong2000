@@ -31,11 +31,23 @@ export interface PhysicsStepResult {
   paddleHit: boolean;
 }
 
+export interface EngineRules {
+  leftPaddleHeight?: number;
+  rightPaddleHeight?: number;
+  paddleSpeed?: number;
+  ballInitialSpeed?: number;
+  ballSpeedIncrement?: number;
+  ballMaxSpeed?: number;
+}
+
 function clamp(val: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, val));
 }
 
-export function createInitialPhysics(serveToward: PaddleSide = 'right'): PhysicsState {
+export function createInitialPhysics(
+  serveToward: PaddleSide = 'right',
+  ballInitialSpeed: number = BALL_INITIAL_SPEED,
+): PhysicsState {
   const state: PhysicsState = {
     ballX: 0.5,
     ballY: 0.5,
@@ -45,11 +57,15 @@ export function createInitialPhysics(serveToward: PaddleSide = 'right'): Physics
     rightY: 0.5,
     serveCount: 0,
   };
-  resetBallForServe(state, serveToward);
+  resetBallForServe(state, serveToward, ballInitialSpeed);
   return state;
 }
 
-export function resetBallForServe(state: PhysicsState, serveToward: PaddleSide): void {
+export function resetBallForServe(
+  state: PhysicsState,
+  serveToward: PaddleSide,
+  ballInitialSpeed: number = BALL_INITIAL_SPEED,
+): void {
   state.ballX = 0.5;
   state.ballY = 0.5;
   state.serveCount += 1;
@@ -57,28 +73,41 @@ export function resetBallForServe(state: PhysicsState, serveToward: PaddleSide):
   const anglePattern = [0.22, -0.26, 0.16, -0.2, 0.28, -0.14];
   const angle = anglePattern[(state.serveCount - 1) % anglePattern.length];
   const dirX = serveToward === 'right' ? 1 : -1;
-  state.ballVx = dirX * Math.cos(angle) * BALL_INITIAL_SPEED;
-  state.ballVy = Math.sin(angle) * BALL_INITIAL_SPEED;
+  state.ballVx = dirX * Math.cos(angle) * ballInitialSpeed;
+  state.ballVy = Math.sin(angle) * ballInitialSpeed;
 }
 
 export function stepPaddlesOnly(
   state: PhysicsState,
   inputs: { left: PaddleInputDir; right: PaddleInputDir },
   dtSec: number,
+  rules?: EngineRules,
 ): void {
-  const minPaddleY = PADDLE_HEIGHT / 2;
-  const maxPaddleY = 1 - PADDLE_HEIGHT / 2;
+  const leftHeight = rules?.leftPaddleHeight ?? PADDLE_HEIGHT;
+  const rightHeight = rules?.rightPaddleHeight ?? PADDLE_HEIGHT;
+  const paddleSpeed = rules?.paddleSpeed ?? PADDLE_SPEED;
 
-  state.leftY = clamp(state.leftY + inputs.left * PADDLE_SPEED * dtSec, minPaddleY, maxPaddleY);
-  state.rightY = clamp(state.rightY + inputs.right * PADDLE_SPEED * dtSec, minPaddleY, maxPaddleY);
+  const minLeftY = leftHeight / 2;
+  const maxLeftY = 1 - leftHeight / 2;
+  const minRightY = rightHeight / 2;
+  const maxRightY = 1 - rightHeight / 2;
+
+  state.leftY = clamp(state.leftY + inputs.left * paddleSpeed * dtSec, minLeftY, maxLeftY);
+  state.rightY = clamp(state.rightY + inputs.right * paddleSpeed * dtSec, minRightY, maxRightY);
 }
 
 export function stepMatchPhysics(
   state: PhysicsState,
   inputs: { left: PaddleInputDir; right: PaddleInputDir },
   dtSec: number,
+  rules?: EngineRules,
 ): PhysicsStepResult {
-  stepPaddlesOnly(state, inputs, dtSec);
+  stepPaddlesOnly(state, inputs, dtSec, rules);
+
+  const leftHeight = rules?.leftPaddleHeight ?? PADDLE_HEIGHT;
+  const rightHeight = rules?.rightPaddleHeight ?? PADDLE_HEIGHT;
+  const ballSpeedIncrement = rules?.ballSpeedIncrement ?? BALL_SPEED_INCREMENT;
+  const ballMaxSpeed = rules?.ballMaxSpeed ?? BALL_MAX_SPEED;
 
   const substeps = 4;
   const subDt = dtSec / substeps;
@@ -86,7 +115,8 @@ export function stepMatchPhysics(
   const leftBackX = PADDLE_MARGIN_X;
   const rightFaceX = 1 - PADDLE_MARGIN_X - PADDLE_WIDTH;
   const rightBackX = 1 - PADDLE_MARGIN_X;
-  const halfPaddleH = PADDLE_HEIGHT / 2 + BALL_RADIUS_Y * 0.65;
+  const leftHalfPaddleH = leftHeight / 2 + BALL_RADIUS_Y * 0.65;
+  const rightHalfPaddleH = rightHeight / 2 + BALL_RADIUS_Y * 0.65;
 
   let wallHit = false;
   let paddleHit = false;
@@ -114,12 +144,12 @@ export function stepMatchPhysics(
       state.ballX - BALL_RADIUS_X <= leftFaceX &&
       state.ballX + BALL_RADIUS_X >= leftBackX
     ) {
-      if (Math.abs(state.ballY - state.leftY) <= halfPaddleH) {
-        const relY = clamp((state.ballY - state.leftY) / (PADDLE_HEIGHT / 2), -1, 1);
+      if (Math.abs(state.ballY - state.leftY) <= leftHalfPaddleH) {
+        const relY = clamp((state.ballY - state.leftY) / (leftHeight / 2), -1, 1);
         const bounceAngle = relY * MAX_BOUNCE_ANGLE_RAD;
         const speed = Math.min(
-          BALL_MAX_SPEED,
-          Math.hypot(state.ballVx, state.ballVy) + BALL_SPEED_INCREMENT,
+          ballMaxSpeed,
+          Math.hypot(state.ballVx, state.ballVy) + ballSpeedIncrement,
         );
         state.ballVx = Math.cos(bounceAngle) * speed;
         state.ballVy = Math.sin(bounceAngle) * speed;
@@ -135,12 +165,12 @@ export function stepMatchPhysics(
       state.ballX + BALL_RADIUS_X >= rightFaceX &&
       state.ballX - BALL_RADIUS_X <= rightBackX
     ) {
-      if (Math.abs(state.ballY - state.rightY) <= halfPaddleH) {
-        const relY = clamp((state.ballY - state.rightY) / (PADDLE_HEIGHT / 2), -1, 1);
+      if (Math.abs(state.ballY - state.rightY) <= rightHalfPaddleH) {
+        const relY = clamp((state.ballY - state.rightY) / (rightHeight / 2), -1, 1);
         const bounceAngle = relY * MAX_BOUNCE_ANGLE_RAD;
         const speed = Math.min(
-          BALL_MAX_SPEED,
-          Math.hypot(state.ballVx, state.ballVy) + BALL_SPEED_INCREMENT,
+          ballMaxSpeed,
+          Math.hypot(state.ballVx, state.ballVy) + ballSpeedIncrement,
         );
         state.ballVx = -Math.cos(bounceAngle) * speed;
         state.ballVy = Math.sin(bounceAngle) * speed;

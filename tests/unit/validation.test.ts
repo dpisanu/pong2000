@@ -4,8 +4,15 @@ import path from 'node:path';
 import sharp from 'sharp';
 import { afterEach, describe, expect, it } from 'vitest';
 import { MAX_AVATAR_BYTES } from '../../shared/src/constants.ts';
-import { isValidAvatarId, resolveAvatarUrl, sanitizeNickname } from '../../shared/src/validation.ts';
+import {
+  ArenaConfigSchema,
+  isValidAvatarId,
+  resolveAvatarUrl,
+  sanitizeNickname,
+  validateHostIpInput,
+} from '../../shared/src/validation.ts';
 import { AvatarService, AvatarUploadError } from '../../server/src/avatars/avatarService.ts';
+import { AdminAuthService, ServerConfigService } from '../../server/src/config/serverConfig.ts';
 import { getLanUrls } from '../../server/src/http/createApp.ts';
 
 describe('validation helpers', () => {
@@ -102,5 +109,81 @@ describe('getLanUrls', () => {
     );
     expect(withPublic[0]).toBe('http://10.0.0.5:3000');
     expect(withPublic[1]).toBe('http://192.168.1.42:3000');
+  });
+});
+
+describe('ServerConfigService & ArenaConfigSchema', () => {
+  it('validates hostIp inputs and rejects malformed paths or invalid characters', () => {
+    expect(validateHostIpInput('192.168.1.42')).toEqual({ ok: true, value: '192.168.1.42' });
+    expect(validateHostIpInput('http://10.0.0.12:3000/')).toEqual({
+      ok: true,
+      value: 'http://10.0.0.12:3000',
+    });
+    expect(validateHostIpInput('   ')).toEqual({ ok: true, value: '' });
+    expect(validateHostIpInput('http://bad/path').ok).toBe(false);
+    expect(validateHostIpInput('bad host <script>').ok).toBe(false);
+  });
+
+  it('updates, validates bounds, builds demo rules, and resets ServerConfigService', () => {
+    const svc = new ServerConfigService('192.168.1.50');
+    expect(svc.getHostIp()).toBe('192.168.1.50');
+
+    const badSpeed = svc.updateConfig({ ballInitialSpeed: 1.5, ballMaxSpeed: 0.9 });
+    expect(badSpeed.ok).toBe(false);
+
+    const updated = svc.updateConfig({
+      paddleHeight: 0.25,
+      paddleSpeed: 1.2,
+      winScore: 7,
+      hostIp: '10.10.0.8',
+    });
+    expect(updated.ok).toBe(true);
+    expect(svc.getConfig().winScore).toBe(7);
+    expect(svc.getHostIp()).toBe('10.10.0.8');
+
+    const demoRules = svc.buildMatchRules('right');
+    expect(demoRules.isDemoMatch).toBe(true);
+    expect(demoRules.leftPaddleHeight).toBe(0.25);
+    expect(demoRules.rightPaddleHeight).toBe(1.0);
+    expect(demoRules.winScore).toBe(7);
+
+    const reset = svc.resetConfig();
+    expect(reset.hostIp).toBe('192.168.1.50');
+    expect(ArenaConfigSchema.safeParse(reset).success).toBe(true);
+  });
+});
+
+describe('AdminAuthService', () => {
+  it('supports one-time passcode setup, login verification, and token revocation', () => {
+    const auth = new AdminAuthService();
+    expect(auth.needsSetup()).toBe(true);
+
+    expect(auth.setupPasscode('short').ok).toBe(false);
+    const setupRes = auth.setupPasscode('super-secret-pass');
+    expect(setupRes.ok).toBe(true);
+    if (!setupRes.ok) return;
+
+    expect(auth.needsSetup()).toBe(false);
+    expect(auth.verifyToken(setupRes.token)).toBe(true);
+    expect(auth.setupPasscode('another-pass').ok).toBe(false);
+
+    expect(auth.login('wrong-pass').ok).toBe(false);
+    const loginRes = auth.login('super-secret-pass');
+    expect(loginRes.ok).toBe(true);
+    if (!loginRes.ok) return;
+    expect(auth.verifyToken(loginRes.token)).toBe(true);
+
+    auth.revokeToken(loginRes.token);
+    expect(auth.verifyToken(loginRes.token)).toBe(false);
+  });
+
+  it('uses ADMIN_PASSCODE when configured via environment', () => {
+    const auth = new AdminAuthService('env-passcode-123');
+    expect(auth.needsSetup()).toBe(false);
+    expect(auth.isUsingEnvPasscode()).toBe(true);
+    expect(auth.setupPasscode('override').ok).toBe(false);
+    expect(auth.login('wrong').ok).toBe(false);
+    const res = auth.login('env-passcode-123');
+    expect(res.ok).toBe(true);
   });
 });

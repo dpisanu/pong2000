@@ -4,6 +4,7 @@ import { Check, Copy, X } from 'lucide-react';
 
 interface LanShareModalProps {
   onClose: () => void;
+  onOpenAdmin?: () => void;
 }
 
 interface ServerInfoResponse {
@@ -11,29 +12,17 @@ interface ServerInfoResponse {
   primaryUrl: string;
   port?: number;
   isContainer?: boolean;
-  needsHostIpHint?: boolean;
+  hasConfiguredHostIp?: boolean;
+  ipDetected?: boolean;
 }
 
-function buildUrlFromHostInput(raw: string, port: number): string {
-  const trimmed = raw.trim().replace(/\/+$/, '');
-  if (!trimmed) return '';
-  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-    return trimmed;
-  }
-  if (trimmed.includes(':')) {
-    return `http://${trimmed}`;
-  }
-  return `http://${trimmed}:${port}`;
-}
-
-export function LanShareModal({ onClose }: LanShareModalProps) {
+export function LanShareModal({ onClose, onOpenAdmin }: LanShareModalProps) {
   const [urls, setUrls] = useState<string[]>([]);
   const [selectedUrl, setSelectedUrl] = useState<string>(window.location.origin);
   const [hostPort, setHostPort] = useState<number>(
     Number(window.location.port) || 3000,
   );
-  const [needsHostIpHint, setNeedsHostIpHint] = useState(false);
-  const [customHostInput, setCustomHostInput] = useState('');
+  const [ipDetected, setIpDetected] = useState<boolean>(true);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -48,26 +37,23 @@ export function LanShareModal({ onClose }: LanShareModalProps) {
         const list = data.lanUrls.length > 0 ? data.lanUrls : [];
         setUrls(list);
         setSelectedUrl(list[0] || data.primaryUrl || window.location.origin);
-        setNeedsHostIpHint(Boolean(data.needsHostIpHint));
+        setIpDetected(data.ipDetected !== false);
       })
       .catch(() => {
         if (!active) return;
         setUrls([window.location.origin]);
         setSelectedUrl(window.location.origin);
+        setIpDetected(true);
       });
     return () => {
       active = false;
     };
   }, []);
 
-  const activeShareUrl = customHostInput.trim()
-    ? buildUrlFromHostInput(customHostInput, hostPort)
-    : selectedUrl;
-
   useEffect(() => {
-    if (!activeShareUrl) return;
+    if (!selectedUrl) return;
     let active = true;
-    QRCode.toDataURL(activeShareUrl, {
+    QRCode.toDataURL(selectedUrl, {
       width: 200,
       margin: 2,
       color: { dark: '#0f172a', light: '#f8fafc' },
@@ -81,11 +67,11 @@ export function LanShareModal({ onClose }: LanShareModalProps) {
     return () => {
       active = false;
     };
-  }, [activeShareUrl]);
+  }, [selectedUrl]);
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(activeShareUrl);
+      await navigator.clipboard.writeText(selectedUrl);
       setCopied(true);
       setTimeout(() => setCopied(false), 1800);
     } catch {
@@ -127,12 +113,9 @@ export function LanShareModal({ onClose }: LanShareModalProps) {
                 <button
                   key={url}
                   type="button"
-                  onClick={() => {
-                    setCustomHostInput('');
-                    setSelectedUrl(url);
-                  }}
+                  onClick={() => setSelectedUrl(url)}
                   className={`px-3 py-1.5 text-xs font-mono-tabular rounded-lg border transition-colors ${
-                    !customHostInput.trim() && selectedUrl === url
+                    selectedUrl === url
                       ? 'bg-emerald-500/15 border-emerald-500 text-emerald-200'
                       : 'bg-[#0d131a] border-white/10 text-slate-300 hover:border-white/25'
                   }`}
@@ -143,29 +126,11 @@ export function LanShareModal({ onClose }: LanShareModalProps) {
             </div>
           )}
 
-          {needsHostIpHint && (
-            <div className="p-3.5 bg-amber-950/40 border border-amber-500/30 rounded-lg space-y-2.5">
-              <p className="text-xs text-amber-200">
-                Running inside Docker via localhost — enter your host machine&apos;s LAN IP below
-                (or set <code className="font-mono-tabular">PUBLIC_URL</code> in{' '}
-                <code className="font-mono-tabular">.env</code>) to generate a shareable link.
-              </p>
-              <input
-                type="text"
-                value={customHostInput}
-                onChange={(e) => setCustomHostInput(e.target.value)}
-                placeholder="e.g. 192.168.1.42"
-                aria-label="Host LAN IP address"
-                className="w-full px-3 py-2 text-sm font-mono-tabular text-slate-100 bg-[#0d131a] border border-white/15 rounded-md placeholder:text-slate-500 focus:outline-none focus:border-emerald-500"
-              />
-            </div>
-          )}
-
           <div className="flex items-center gap-2 p-2 bg-[#0d131a] border border-white/10 rounded-lg">
             <input
               type="text"
               readOnly
-              value={activeShareUrl}
+              value={selectedUrl}
               aria-label="LAN server URL"
               className="flex-1 bg-transparent px-2 text-sm font-mono-tabular text-slate-100 focus:outline-none"
             />
@@ -179,11 +144,32 @@ export function LanShareModal({ onClose }: LanShareModalProps) {
             </button>
           </div>
 
+          {!ipDetected && (
+            <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-400">
+              <span>
+                No external LAN IP detected automatically. Configure the Host IP in Admin if sharing
+                from a container.
+              </span>
+              {onOpenAdmin && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    onOpenAdmin();
+                  }}
+                  className="font-medium text-emerald-400 hover:text-emerald-300 whitespace-nowrap shrink-0"
+                >
+                  Open Admin
+                </button>
+              )}
+            </div>
+          )}
+
           {qrDataUrl && (
             <div className="flex flex-col items-center py-3 bg-[#0d131a] border border-white/10 rounded-lg">
               <img
                 src={qrDataUrl}
-                alt={`QR code for ${activeShareUrl}`}
+                alt={`QR code for ${selectedUrl}`}
                 width={160}
                 height={160}
                 className="w-40 h-40 rounded-lg"

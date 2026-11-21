@@ -3,6 +3,7 @@ import os from 'node:os';
 import express, { type Express, type Request, type Response } from 'express';
 import { MAX_AVATAR_BYTES } from '../../../shared/src/constants.ts';
 import { AvatarUploadError, type AvatarService } from '../avatars/avatarService.ts';
+import { AdminAuthService, ServerConfigService } from '../config/serverConfig.ts';
 import type { MatchManager } from '../matches/matchManager.ts';
 import type { SessionManager } from '../sessions/sessionManager.ts';
 import { isOriginAllowed } from '../ws/wsGateway.ts';
@@ -13,6 +14,9 @@ export interface CreateAppOptions {
   getMatchManager: () => MatchManager;
   port: number;
   publicUrl?: string;
+  configService?: ServerConfigService;
+  adminAuth?: AdminAuthService;
+  onConfigUpdated?: () => void;
   allowedOrigins?: string[];
   startedAt?: number;
 }
@@ -36,6 +40,18 @@ function isLoopbackHost(hostHeader: string): boolean {
   );
 }
 
+export function formatConfiguredHostUrl(rawHost: string, port: number): string {
+  const trimmed = rawHost.trim().replace(/\/+$/, '');
+  if (!trimmed) return '';
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    return trimmed;
+  }
+  if (trimmed.includes(':')) {
+    return `http://${trimmed}`;
+  }
+  return `http://${trimmed}:${port}`;
+}
+
 export function isRunningInContainer(): boolean {
   try {
     return fs.existsSync('/.dockerenv');
@@ -53,7 +69,10 @@ export function getLanUrls(
 ): string[] {
   const urls: string[] = [];
   if (explicitPublicUrl) {
-    urls.push(explicitPublicUrl.replace(/\/+$/, ''));
+    const formatted = formatConfiguredHostUrl(explicitPublicUrl, port);
+    if (formatted) {
+      urls.push(formatted);
+    }
   }
 
   if (requestHost && !isLoopbackHost(requestHost)) {
@@ -92,27 +111,22 @@ export function getLanUrls(
   return urls;
 }
 
+function extractBearerToken(req: Request): string | null {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
+  return authHeader.slice('Bearer '.length).trim() || null;
+}
+
 export function createApp(options: CreateAppOptions): Express {
   const app = express();
   const startedAt = options.startedAt ?? Date.now();
   const allowedOrigins = options.allowedOrigins ?? [];
+  const configService = options.configService ?? new ServerConfigService(options.publicUrl ?? '');
+  const adminAuth = options.adminAuth ?? new AdminAuthService(process.env.ADMIN_PASSCODE);
 
   app.disable('x-powered-by');
 
-  app.get('/healthz', (_req: Request, res: Response) => {
-    const activePlayers = options.sessions
-      .getAllSessions()
-      .filter((s) => s.connected).length;
-    const activeMatches = options.getMatchManager().getActiveMatchCount();
-    res.json({
-      status: 'ok',
-      uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000),
-      activePlayers,
-      activeMatches,
-    });
-  });
-
-  app.get('/api/server-info', (req: Request, res: Response) => {
+  const resolveServerInfo = (req: Request) => {
     const forwardedProto = req.headers['x-forwarded-proto'];
     const protocol =
       (Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto) ||
@@ -124,14 +138,142 @@ export function createApp(options: CreateAppOptions): Express {
       req.get('host') ||
       null;
     const inContainer = isRunningInContainer();
-    const lanUrls = getLanUrls(options.port, options.publicUrl, host, protocol, inContainer);
+    const configuredHost = configService.getHostIp() || options.publicUrl;
+    const lanUrls = getLanUrls(options.port, configuredHost, host, protocol, inContainer);
     const requestOrigin = host ? `${protocol}://${host}` : null;
-    res.json({
+    return {
       lanUrls,
       primaryUrl: lanUrls[0] ?? requestOrigin ?? `http://localhost:${options.port}`,
       port: options.port,
       isContainer: inContainer,
-      needsHostIpHint: inContainer && lanUrls.length === 0,
+      hasConfiguredHostIp: Boolean(configService.getHostIp()),
+      ipDetected: lanUrls.length > 0,
+    };
+  };
+
+  app.get('/healthz', (_req: Request, res: Response) => {
+    const activePlayers = options.sessions.getConnectedHumanCount();
+    const activeMatches = options.getMatchManager().getActiveMatchCount();
+    res.json({
+      status: 'ok',
+      uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000),
+      activePlayers,
+      activeMatches,
+    });
+  });
+
+  app.get('/api/server-info', (req: Request, res: Response) => {
+    res.json(resolveServerInfo(req));
+  });
+
+  app.get('/api/config', (_req: Request, res: Response) => {
+    res.json(configService.getPublicConfig());
+  });
+
+  // Admin status & authentication endpoints
+  app.get('/api/admin/status', (req: Request, res: Response) => {
+    const token = extractBearerToken(req);
+    res.json({
+      needsSetup: adminAuth.needsSetup(),
+      usesEnvPasscode: adminAuth.isUsingEnvPasscode(),
+      authenticated: adminAuth.verifyToken(token),
+    });
+  });
+
+  app.post('/api/admin/setup', express.json({ limit: '4kb' }), (req: Request, res: Response) => {
+    if (!isOriginAllowed(req, allowedOrigins)) {
+      res.status(403).json({ error: 'Cross-origin admin request rejected.' });
+      return;
+    }
+    const result = adminAuth.setupPasscode(req.body?.passcode);
+    if (!result.ok) {
+      res.status(result.status).json({ error: result.error });
+      return;
+    }
+    res.status(201).json({ token: result.token });
+  });
+
+  const loginAttempts = new Map<string, { count: number; resetAt: number }>();
+
+  app.post('/api/admin/login', express.json({ limit: '4kb' }), (req: Request, res: Response) => {
+    if (!isOriginAllowed(req, allowedOrigins)) {
+      res.status(403).json({ error: 'Cross-origin admin request rejected.' });
+      return;
+    }
+    const clientKey = req.ip || req.socket.remoteAddress || 'unknown';
+    const now = Date.now();
+    const record = loginAttempts.get(clientKey);
+    if (record && record.resetAt > now && record.count >= 8) {
+      res.status(429).json({ error: 'Too many failed login attempts. Try again in a minute.' });
+      return;
+    }
+
+    const result = adminAuth.login(req.body?.passcode);
+    if (!result.ok) {
+      if (!record || record.resetAt <= now) {
+        loginAttempts.set(clientKey, { count: 1, resetAt: now + 60_000 });
+      } else {
+        record.count += 1;
+      }
+      res.status(result.status).json({ error: result.error });
+      return;
+    }
+    loginAttempts.delete(clientKey);
+    res.json({ token: result.token });
+  });
+
+  app.post('/api/admin/logout', (req: Request, res: Response) => {
+    if (!isOriginAllowed(req, allowedOrigins)) {
+      res.status(403).json({ error: 'Cross-origin admin request rejected.' });
+      return;
+    }
+    const token = extractBearerToken(req);
+    adminAuth.revokeToken(token);
+    res.json({ ok: true });
+  });
+
+  const requireAdmin = (req: Request, res: Response): boolean => {
+    if (!isOriginAllowed(req, allowedOrigins)) {
+      res.status(403).json({ error: 'Cross-origin admin request rejected.' });
+      return false;
+    }
+    const token = extractBearerToken(req);
+    if (!adminAuth.verifyToken(token)) {
+      res.status(401).json({ error: 'Admin authentication required.' });
+      return false;
+    }
+    return true;
+  };
+
+  app.get('/api/admin/config', (req: Request, res: Response) => {
+    if (!requireAdmin(req, res)) return;
+    res.json({
+      config: configService.getConfig(),
+      serverInfo: resolveServerInfo(req),
+    });
+  });
+
+  app.put('/api/admin/config', express.json({ limit: '16kb' }), (req: Request, res: Response) => {
+    if (!requireAdmin(req, res)) return;
+    const updated = configService.updateConfig(req.body);
+    if (!updated.ok) {
+      res.status(400).json({ error: updated.error });
+      return;
+    }
+    options.onConfigUpdated?.();
+    res.json({
+      config: updated.config,
+      serverInfo: resolveServerInfo(req),
+    });
+  });
+
+  app.post('/api/admin/config/reset', (req: Request, res: Response) => {
+    if (!requireAdmin(req, res)) return;
+    const config = configService.resetConfig();
+    options.onConfigUpdated?.();
+    res.json({
+      config,
+      serverInfo: resolveServerInfo(req),
     });
   });
 
@@ -148,13 +290,12 @@ export function createApp(options: CreateAppOptions): Express {
           return;
         }
 
-        const authHeader = req.headers.authorization;
-        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        const token = extractBearerToken(req);
+        if (!token) {
           res.status(401).json({ error: 'Missing session authorization header.' });
           return;
         }
 
-        const token = authHeader.slice('Bearer '.length).trim();
         const session = options.sessions.getByUploadToken(token);
         if (!session) {
           res.status(401).json({ error: 'Invalid or expired session upload token.' });
@@ -181,7 +322,7 @@ export function createApp(options: CreateAppOptions): Express {
     },
   );
 
-  // Explicit payload-too-large / JSON error handler for express.raw
+  // Explicit payload-too-large / JSON error handler for express.raw / express.json
   app.use((err: unknown, _req: Request, res: Response, next: (e?: unknown) => void) => {
     if (
       typeof err === 'object' &&
@@ -189,7 +330,11 @@ export function createApp(options: CreateAppOptions): Express {
       'type' in err &&
       (err as { type?: string }).type === 'entity.too.large'
     ) {
-      res.status(413).json({ error: 'Image exceeds the 1 MiB upload limit.' });
+      res.status(413).json({ error: 'Request payload exceeds the allowed size limit.' });
+      return;
+    }
+    if (err instanceof SyntaxError && 'status' in err && (err as { status?: number }).status === 400) {
+      res.status(400).json({ error: 'Malformed JSON body.' });
       return;
     }
     next(err);

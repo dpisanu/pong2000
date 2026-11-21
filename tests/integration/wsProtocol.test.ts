@@ -4,9 +4,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
-import { PROTOCOL_VERSION } from '../../shared/src/constants.ts';
+import { DEMO_PLAYER_ID, PROTOCOL_VERSION } from '../../shared/src/constants.ts';
 import type { ServerEvent } from '../../shared/src/protocol.ts';
 import { AvatarService } from '../../server/src/avatars/avatarService.ts';
+import { AdminAuthService, ServerConfigService } from '../../server/src/config/serverConfig.ts';
 import { createApp } from '../../server/src/http/createApp.ts';
 import { SessionManager } from '../../server/src/sessions/sessionManager.ts';
 import { WsGateway } from '../../server/src/ws/wsGateway.ts';
@@ -31,12 +32,17 @@ async function createTestServer(opts?: {
   await avatarService.init();
 
   const sessions = new SessionManager();
+  const configService = new ServerConfigService();
+  const adminAuth = new AdminAuthService();
   let gateway: WsGateway | null = null;
   const app = createApp({
     avatarService,
     sessions,
     getMatchManager: () => gateway!.matches,
     port: 0,
+    configService,
+    adminAuth,
+    onConfigUpdated: () => gateway?.applyRuntimeConfigUpdate(),
   });
 
   const server = http.createServer(app);
@@ -44,6 +50,7 @@ async function createTestServer(opts?: {
     server,
     sessions,
     avatarService,
+    configService,
     challengeExpiryMs: opts?.challengeExpiryMs ?? 30_000,
     disconnectGraceMs: opts?.disconnectGraceMs ?? 10_000,
     heartbeatIntervalMs: 60_000,
@@ -380,5 +387,112 @@ describe('WebSocket protocol & multiplayer integration', () => {
 
     a.client.ws.close();
     b.client.ws.close();
+  });
+
+  it('responds to WebSocket ping with matching pong clientTime', async () => {
+    const srv = await createTestServer();
+    cleanups.push(srv.close);
+
+    const a = await connectClient(srv.port, 'PingTester');
+    a.client.send({
+      type: 'ping',
+      requestId: 'ping-1',
+      payload: { clientTime: 123456789 },
+    });
+
+    const pong = await a.client.waitFor('pong', (ev) => ev.requestId === 'ping-1');
+    expect(pong.payload.clientTime).toBe(123456789);
+    a.client.ws.close();
+  });
+
+  it('auto-accepts Demo Player challenges with full-height opponent paddle and leaves Demo Player available', async () => {
+    const srv = await createTestServer();
+    cleanups.push(srv.close);
+
+    const p1 = await connectClient(srv.port, 'Solo1');
+    const p2 = await connectClient(srv.port, 'Solo2');
+
+    expect(p1.ready.payload.lobby.some((p) => p.playerId === DEMO_PLAYER_ID && p.isBot)).toBe(true);
+
+    p1.client.send({
+      type: 'challenge.create',
+      requestId: 'demo-ch-1',
+      payload: { targetPlayerId: DEMO_PLAYER_ID },
+    });
+
+    const started = await p1.client.waitFor('match.started');
+    expect(started.payload.yourSide).toBe('left');
+    expect(started.payload.rules?.isDemoMatch).toBe(true);
+    expect(started.payload.rules?.rightPaddleHeight).toBe(1.0);
+    expect(started.payload.participants[1].playerId).toBe(DEMO_PLAYER_ID);
+
+    // Demo Player stays AVAILABLE so another human player can start their own Demo match concurrently
+    p2.client.send({
+      type: 'challenge.create',
+      requestId: 'demo-ch-2',
+      payload: { targetPlayerId: DEMO_PLAYER_ID },
+    });
+    const started2 = await p2.client.waitFor('match.started');
+    expect(started2.payload.rules?.isDemoMatch).toBe(true);
+
+    p1.client.ws.close();
+    p2.client.ws.close();
+  });
+
+  it('secures /api/admin/* endpoints, updates runtime config, broadcasts config.updated, and updates /api/server-info', async () => {
+    const srv = await createTestServer();
+    cleanups.push(srv.close);
+    const baseUrl = `http://127.0.0.1:${srv.port}`;
+
+    const clientConn = await connectClient(srv.port, 'AdminWatcher');
+
+    // Unauthenticated read rejected
+    const unauthRes = await fetch(`${baseUrl}/api/admin/config`);
+    expect(unauthRes.status).toBe(401);
+
+    // Claim admin passcode via first-run setup
+    const setupRes = await fetch(`${baseUrl}/api/admin/setup`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ passcode: 'lan-admin-2026' }),
+    });
+    expect(setupRes.status).toBe(201);
+    const { token } = (await setupRes.json()) as { token: string };
+    expect(token).toMatch(/^ad_/);
+
+    // Save custom physics, rounds, timeouts, and explicit Host IP
+    const putRes = await fetch(`${baseUrl}/api/admin/config`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        paddleHeight: 0.28,
+        paddleSpeed: 1.15,
+        ballInitialSpeed: 0.85,
+        winScore: 9,
+        hostIp: '192.168.50.99',
+      }),
+    });
+    expect(putRes.status).toBe(200);
+
+    // Connected WebSocket clients receive updated public config immediately
+    const cfgEv = await clientConn.client.waitFor('config.updated');
+    expect(cfgEv.payload.config.winScore).toBe(9);
+    expect(cfgEv.payload.config.paddleHeight).toBe(0.28);
+
+    // Public /api/server-info uses configured Host IP without leaking admin settings
+    const infoRes = await fetch(`${baseUrl}/api/server-info`);
+    const info = (await infoRes.json()) as {
+      lanUrls: string[];
+      hasConfiguredHostIp: boolean;
+      ipDetected: boolean;
+    };
+    expect(info.hasConfiguredHostIp).toBe(true);
+    expect(info.ipDetected).toBe(true);
+    expect(info.lanUrls[0]).toContain('192.168.50.99');
+
+    clientConn.client.ws.close();
   });
 });

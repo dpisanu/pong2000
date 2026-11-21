@@ -1,12 +1,18 @@
 import { useEffect, useState } from 'react';
 import { Swords, UserPlus } from 'lucide-react';
-import type { ChallengeInfo, LobbyPlayer, PlayerStatus } from '../../shared/src/types.ts';
+import type {
+  ChallengeInfo,
+  LobbyPlayer,
+  PlayerStatus,
+  PublicArenaConfig,
+} from '../../shared/src/types.ts';
 import { AvatarImg } from '../components/AvatarImg.tsx';
 
 interface LobbyViewProps {
   selfPlayerId: string | null;
   players: LobbyPlayer[];
   activeChallenge: ChallengeInfo | null;
+  arenaConfig: PublicArenaConfig;
   connected: boolean;
   onChallenge: (targetPlayerId: string) => void;
   onAcceptChallenge: (challengeId: string) => void;
@@ -33,6 +39,7 @@ export function LobbyView({
   selfPlayerId,
   players,
   activeChallenge,
+  arenaConfig,
   connected,
   onChallenge,
   onAcceptChallenge,
@@ -52,6 +59,7 @@ export function LobbyView({
 
   const selfPlayer = players.find((p) => p.playerId === selfPlayerId) ?? null;
   const otherPlayers = players.filter((p) => p.playerId !== selfPlayerId);
+  const humanOpponents = otherPlayers.filter((p) => !p.isBot);
   const visiblePlayers =
     filter === 'available'
       ? otherPlayers.filter((p) => p.status === 'AVAILABLE')
@@ -59,6 +67,7 @@ export function LobbyView({
 
   const availableCount = otherPlayers.filter((p) => p.status === 'AVAILABLE').length;
   const selfAvailable = selfPlayer?.status === 'AVAILABLE' && !activeChallenge && connected;
+  const humanOnlineCount = players.filter((p) => !p.isBot).length;
 
   const isIncoming =
     activeChallenge !== null &&
@@ -84,7 +93,7 @@ export function LobbyView({
                 Arena Lobby
               </h1>
               <div className="mt-1 flex items-center gap-2 text-xs text-slate-400 font-mono-tabular">
-                <span>{players.length} online</span>
+                <span>{humanOnlineCount} players online</span>
                 <span aria-hidden="true">·</span>
                 <span>{availableCount} opponents ready</span>
               </div>
@@ -128,16 +137,6 @@ export function LobbyView({
                   ? 'Share the server LAN address so another player on your network can open it in their browser.'
                   : 'Players currently in a match or invitation will appear here once free.'}
               </p>
-              {otherPlayers.length === 0 && (
-                <button
-                  type="button"
-                  onClick={onOpenShare}
-                  className="mt-5 inline-flex items-center gap-2 px-4 py-2.5 text-sm font-semibold text-slate-950 bg-emerald-500 hover:bg-emerald-400 rounded-lg transition-colors whitespace-nowrap shrink-0"
-                >
-                  <UserPlus className="w-4 h-4" />
-                  Show LAN Invite URL
-                </button>
-              )}
             </div>
           ) : (
             <ul className="divide-y divide-white/10">
@@ -160,8 +159,20 @@ export function LobbyView({
                         <div className="text-base font-medium text-slate-100 truncate">
                           {player.nickname}
                         </div>
-                        <div className={`mt-0.5 text-xs font-medium ${statusMeta.colorClass}`}>
-                          {statusMeta.label}
+                        <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs">
+                          <span className={`font-medium ${statusMeta.colorClass}`}>
+                            {statusMeta.label}
+                          </span>
+                          {player.isBot && (
+                            <>
+                              <span className="text-slate-500" aria-hidden="true">
+                                ·
+                              </span>
+                              <span className="text-slate-400">
+                                Demo mode · Full-height paddle · Auto-accepts
+                              </span>
+                            </>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -173,12 +184,29 @@ export function LobbyView({
                       className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap shrink-0 bg-emerald-500 text-slate-950 hover:bg-emerald-400 disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
                     >
                       <Swords className="w-3.5 h-3.5" />
-                      Challenge
+                      {player.isBot ? 'Start Demo' : 'Challenge'}
                     </button>
                   </li>
                 );
               })}
             </ul>
+          )}
+
+          {humanOpponents.length === 0 && (
+            <div className="px-6 py-5 border-t border-white/10 bg-[#111922]/60 flex flex-wrap items-center justify-between gap-4">
+              <div className="text-xs text-slate-400">
+                Practice against <span className="text-slate-200 font-medium">Demo Player</span>{' '}
+                anytime, or invite another player on your LAN.
+              </div>
+              <button
+                type="button"
+                onClick={onOpenShare}
+                className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold text-slate-950 bg-emerald-500 hover:bg-emerald-400 rounded-lg transition-colors whitespace-nowrap shrink-0"
+              >
+                <UserPlus className="w-3.5 h-3.5" />
+                Show LAN Invite URL
+              </button>
+            </div>
           )}
         </section>
 
@@ -209,7 +237,10 @@ export function LobbyView({
                   <div className="text-base font-semibold text-slate-100 truncate">
                     {activeChallenge.fromNickname}
                   </div>
-                  <div className="text-xs text-slate-400">First to 5 points</div>
+                  <div className="text-xs text-slate-400">
+                    First to {arenaConfig.winScore}{' '}
+                    {arenaConfig.winScore === 1 ? 'point' : 'points'}
+                  </div>
                 </div>
               </div>
 
@@ -308,11 +339,16 @@ export function LobbyView({
               </div>
               <div className="flex items-center justify-between">
                 <span>Win Condition</span>
-                <span className="font-mono-tabular text-slate-200">First to 5 points</span>
+                <span className="font-mono-tabular text-slate-200">
+                  First to {arenaConfig.winScore}{' '}
+                  {arenaConfig.winScore === 1 ? 'point' : 'points'}
+                </span>
               </div>
               <div className="flex items-center justify-between">
                 <span>Disconnect Grace</span>
-                <span className="font-mono-tabular text-slate-200">10 seconds</span>
+                <span className="font-mono-tabular text-slate-200">
+                  {Math.round(arenaConfig.disconnectGraceMs / 1000)} seconds
+                </span>
               </div>
             </div>
           </section>

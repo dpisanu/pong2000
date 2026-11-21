@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Volume2, VolumeX, LogOut } from 'lucide-react';
+import { WIN_SCORE } from '../../shared/src/constants.ts';
 import type {
   ActiveMatchSync,
   MatchOutcomeReason,
@@ -12,6 +13,7 @@ import { PongArenaCanvas } from './PongArenaCanvas.tsx';
 interface MatchViewProps {
   match: ActiveMatchSync;
   selfPlayerId: string;
+  pingMs: number | null;
   onSendInput: (matchId: string, direction: -1 | 0 | 1, seq: number) => void;
   onLeaveMatch: (matchId: string) => void;
   onRequestRematch: (matchId: string) => void;
@@ -19,10 +21,13 @@ interface MatchViewProps {
   onReturnToLobby: () => void;
 }
 
-function formatOutcomeReason(reason: MatchOutcomeReason | null | undefined): string {
+function formatOutcomeReason(
+  reason: MatchOutcomeReason | null | undefined,
+  winScore: number,
+): string {
   switch (reason) {
     case 'SCORE_LIMIT':
-      return 'First to 5 points';
+      return `First to ${winScore} ${winScore === 1 ? 'point' : 'points'}`;
     case 'FORFEIT_DISCONNECT':
       return 'Forfeit due to disconnect timeout';
     case 'FORFEIT_LEAVE':
@@ -35,6 +40,7 @@ function formatOutcomeReason(reason: MatchOutcomeReason | null | undefined): str
 export function MatchView({
   match,
   selfPlayerId,
+  pingMs,
   onSendInput,
   onLeaveMatch,
   onRequestRematch,
@@ -57,9 +63,10 @@ export function MatchView({
     onSendInputRef.current = onSendInput;
   }, [onSendInput]);
 
-  const { snapshot, participants, yourSide, rematch } = match;
+  const { snapshot, participants, yourSide, rematch, rules } = match;
   const leftPlayer = participants[0];
   const rightPlayer = participants[1];
+  const winScore = rules?.winScore ?? WIN_SCORE;
 
   const isActiveMatch =
     snapshot.phase === 'COUNTDOWN' ||
@@ -300,6 +307,7 @@ export function MatchView({
           snapshot={snapshot}
           yourSide={yourSide}
           localDirectionRef={lastDirRef}
+          rules={rules}
         />
 
         {/* Countdown Overlay */}
@@ -360,7 +368,7 @@ export function MatchView({
           >
             <div className="max-w-md w-full bg-[#151e29] border border-white/15 rounded-xl p-6 sm:p-7 text-center shadow-2xl">
               <div className="text-xs font-medium text-slate-400">
-                {formatOutcomeReason(match.outcomeReason)}
+                {formatOutcomeReason(match.outcomeReason, winScore)}
               </div>
               <h2
                 id="match-result-heading"
@@ -438,11 +446,36 @@ export function MatchView({
 
       {/* Bottom Controls & Key Hint Bar */}
       <div className="mt-4 flex flex-wrap items-center justify-between gap-4 text-xs text-slate-400">
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <span>Move Paddle:</span>
           <span className="font-mono-tabular text-slate-200">W / S or ↑ / ↓</span>
           <span aria-hidden="true">·</span>
-          <span>First to 5 points</span>
+          <span>
+            First to {winScore} {winScore === 1 ? 'point' : 'points'}
+          </span>
+          {rules?.isDemoMatch && (
+            <>
+              <span aria-hidden="true">·</span>
+              <span className="text-slate-300">Demo mode (full-height opponent paddle)</span>
+            </>
+          )}
+          {pingMs !== null && (
+            <>
+              <span aria-hidden="true">·</span>
+              <span
+                className={`font-mono-tabular ${
+                  pingMs >= 100
+                    ? 'text-red-400'
+                    : pingMs >= 50
+                      ? 'text-amber-300'
+                      : 'text-emerald-400'
+                }`}
+              >
+                Ping {pingMs} ms
+                {pingMs >= 100 ? ' (High lag)' : pingMs >= 50 ? ' (Moderate lag)' : ''}
+              </span>
+            </>
+          )}
         </div>
 
         <div className="flex items-center gap-3">

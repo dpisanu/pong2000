@@ -7,6 +7,7 @@ export type ConnectionState = 'DISCONNECTED' | 'CONNECTING' | 'CONNECTED' | 'REC
 export interface ArenaClientHandlers {
   onConnectionState: (state: ConnectionState) => void;
   onEvent: (event: ServerEvent) => void;
+  onLatency?: (pingMs: number | null) => void;
   onTransportError?: (message: string) => void;
 }
 
@@ -16,6 +17,8 @@ export class ArenaClient {
   private recoveryToken: string | undefined;
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private pingTimer: ReturnType<typeof setInterval> | null = null;
+  private pendingPings = new Map<string, number>();
   private manuallyClosed = false;
   private requestCounter = 0;
   private readonly handlers: ArenaClientHandlers;
@@ -50,11 +53,13 @@ export class ArenaClient {
   disconnect(): void {
     this.manuallyClosed = true;
     this.clearReconnectTimer();
+    this.stopPingLoop();
     if (this.ws) {
       this.ws.close(1000, 'Client disconnect');
       this.ws = null;
     }
     this.handlers.onConnectionState('DISCONNECTED');
+    this.handlers.onLatency?.(null);
   }
 
   private clearReconnectTimer(): void {
@@ -62,6 +67,40 @@ export class ArenaClient {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
+  }
+
+  private startPingLoop(): void {
+    this.stopPingLoop();
+    this.sendPing();
+    this.pingTimer = setInterval(() => {
+      this.sendPing();
+    }, 2000);
+  }
+
+  private stopPingLoop(): void {
+    if (this.pingTimer) {
+      clearInterval(this.pingTimer);
+      this.pingTimer = null;
+    }
+    this.pendingPings.clear();
+  }
+
+  private sendPing(): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    const nowPerf = performance.now();
+    // Prune any unanswered pings older than 15s
+    for (const [id, sentAt] of this.pendingPings.entries()) {
+      if (nowPerf - sentAt > 15_000) {
+        this.pendingPings.delete(id);
+      }
+    }
+    const requestId = this.nextRequestId();
+    this.pendingPings.set(requestId, nowPerf);
+    this.send({
+      type: 'ping',
+      requestId,
+      payload: { clientTime: Date.now() },
+    });
   }
 
   private openSocket(isReconnect: boolean): void {
@@ -88,11 +127,21 @@ export class ArenaClient {
           },
         });
       }
+      this.startPingLoop();
     };
 
     ws.onmessage = (msg) => {
       try {
         const parsed = JSON.parse(String(msg.data)) as ServerEvent;
+        if (parsed.type === 'pong') {
+          const sentPerf = this.pendingPings.get(parsed.requestId);
+          if (sentPerf !== undefined) {
+            this.pendingPings.delete(parsed.requestId);
+            const rttMs = Math.max(0, Math.round(performance.now() - sentPerf));
+            this.handlers.onLatency?.(rttMs);
+          }
+          return;
+        }
         this.handlers.onEvent(parsed);
       } catch {
         this.handlers.onTransportError?.('Received malformed message from server.');
@@ -102,6 +151,8 @@ export class ArenaClient {
     ws.onclose = () => {
       if (this.ws !== ws) return;
       this.ws = null;
+      this.stopPingLoop();
+      this.handlers.onLatency?.(null);
       if (this.manuallyClosed) {
         this.handlers.onConnectionState('DISCONNECTED');
         return;

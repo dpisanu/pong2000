@@ -47,13 +47,23 @@ npm run build    # Builds production client bundle into dist/
 npm start        # Runs production server via Node.js (requires npm run build first)
 ```
 
-## Controls & Match Rules
+## Controls, Demo Mode & Match Rules
 
 - **Move Paddle:** `W` / `S` or `ArrowUp` / `ArrowDown`
-- **Countdown Head Start:** Paddles unlock during the final 1 second of the pre-serve countdown (from second 2 onward on match start) so players can position before the ball moves
-- **Win Condition:** First player to 5 points wins
-- **Challenge Timeout:** Pending invitations expire after 30 seconds
-- **Disconnect Grace:** Disconnecting mid-match pauses simulation for 10 seconds for automatic session recovery; failing to reconnect forfeits the match
+- **Demo Mode (`Demo Player`):** Challenge **Demo Player** in the Lobby at any time to auto-start a practice match against a full-height opponent paddle to test paddle controls and angled ball bounces.
+- **Countdown Head Start:** Paddles unlock during the final 1 second of the pre-serve countdown (from second 2 onward on match start) so players can position before the ball moves.
+- **Win Condition & Timeouts:** Default first to 5 points wins, 30s challenge expiry, and 10s disconnect grace (all configurable at runtime in `/admin`).
+- **Live Server Ping:** Real-time WebSocket round-trip latency (`ms`) appears in the Top Bar and Match HUD to spot network lag immediately.
+
+## Admin Console (`/admin`)
+
+Visit `/admin` (or click **Admin** in the top navigation bar) to configure runtime server settings without restarting the container:
+
+- **Host IP / URL:** Explicitly set the LAN IPv4 address or URL shown in **Share LAN URL** (recommended when running inside Docker on bridge networking).
+- **Gameplay Physics & Rules:** Tune paddle length (`0.08–0.45`), paddle speed (`0.30–2.50`), ball initial/increment/max speeds, and points to win (`1–21`).
+- **Timeouts:** Adjust challenge expiry, disconnect grace period, and initial/after-point/reconnect countdown durations.
+
+Set `ADMIN_PASSCODE` in `.env` to lock `/admin` with a predefined passcode, or leave it unset to claim a one-time passcode on your first visit to `/admin`.
 
 ## Troubleshooting
 
