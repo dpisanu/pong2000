@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { MAX_AVATAR_BYTES } from '../../shared/src/constants.ts';
 import { isValidAvatarId, resolveAvatarUrl, sanitizeNickname } from '../../shared/src/validation.ts';
 import { AvatarService, AvatarUploadError } from '../../server/src/avatars/avatarService.ts';
+import { getLanUrls } from '../../server/src/http/createApp.ts';
 
 describe('validation helpers', () => {
   it('sanitizes and bounds nicknames properly', () => {
@@ -83,5 +84,23 @@ describe('AvatarService', () => {
 
     const huge = Buffer.alloc(MAX_AVATAR_BYTES + 10);
     await expect(service.processAndStoreUpload('session-1', huge)).rejects.toThrow(AvatarUploadError);
+  });
+});
+
+describe('getLanUrls', () => {
+  it('prioritizes explicit PUBLIC_URL and non-loopback request host and skips container bridge IPs', () => {
+    const urls = getLanUrls(3000, undefined, '192.168.1.42:3000', 'http', true);
+    expect(urls[0]).toBe('http://192.168.1.42:3000');
+    expect(urls.some((u) => /^http:\/\/172\.(1[6-9]|2\d|3[01])\./.test(u))).toBe(false);
+
+    const withPublic = getLanUrls(
+      3000,
+      'http://10.0.0.5:3000/',
+      '192.168.1.42:3000',
+      'http',
+      true,
+    );
+    expect(withPublic[0]).toBe('http://10.0.0.5:3000');
+    expect(withPublic[1]).toBe('http://192.168.1.42:3000');
   });
 });

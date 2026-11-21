@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import os from 'node:os';
 import express, { type Express, type Request, type Response } from 'express';
 import { MAX_AVATAR_BYTES } from '../../../shared/src/constants.ts';
@@ -16,35 +17,74 @@ export interface CreateAppOptions {
   startedAt?: number;
 }
 
-function isPrivateLanIpv4(ip: string): boolean {
-  if (ip.startsWith('192.168.') || ip.startsWith('10.')) return true;
+function isRfc1918Block172(ip: string): boolean {
   const parts = ip.split('.').map(Number);
   return parts.length === 4 && parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31;
 }
 
-export function getLanUrls(port: number, explicitPublicUrl?: string): string[] {
+function isPrivateLanIpv4(ip: string): boolean {
+  return ip.startsWith('192.168.') || ip.startsWith('10.') || isRfc1918Block172(ip);
+}
+
+function isLoopbackHost(hostHeader: string): boolean {
+  const hostname = hostHeader.replace(/:\d+$/, '').toLowerCase();
+  return (
+    hostname === 'localhost' ||
+    hostname === '127.0.0.1' ||
+    hostname === '[::1]' ||
+    hostname === '::1'
+  );
+}
+
+export function isRunningInContainer(): boolean {
+  try {
+    return fs.existsSync('/.dockerenv');
+  } catch {
+    return false;
+  }
+}
+
+export function getLanUrls(
+  port: number,
+  explicitPublicUrl?: string,
+  requestHost?: string | null,
+  requestProtocol = 'http',
+  inContainer = isRunningInContainer(),
+): string[] {
   const urls: string[] = [];
   if (explicitPublicUrl) {
     urls.push(explicitPublicUrl.replace(/\/+$/, ''));
   }
 
-  const privateUrls: string[] = [];
+  if (requestHost && !isLoopbackHost(requestHost)) {
+    const origin = `${requestProtocol}://${requestHost}`.replace(/\/+$/, '');
+    if (!urls.includes(origin)) {
+      urls.push(origin);
+    }
+  }
+
+  const preferredLanUrls: string[] = [];
   const otherUrls: string[] = [];
   const interfaces = os.networkInterfaces();
   for (const entries of Object.values(interfaces)) {
     if (!entries) continue;
     for (const entry of entries) {
-      if (entry.family === 'IPv4' && !entry.internal && !entry.address.startsWith('169.254.')) {
-        const candidate = `http://${entry.address}:${port}`;
-        if (isPrivateLanIpv4(entry.address)) {
-          if (!privateUrls.includes(candidate)) privateUrls.push(candidate);
-        } else {
-          if (!otherUrls.includes(candidate)) otherUrls.push(candidate);
-        }
+      if (entry.family !== 'IPv4' || entry.internal || entry.address.startsWith('169.254.')) {
+        continue;
+      }
+      // Inside Docker bridge networking, 172.16.0.0/12 is typically the container's internal bridge IP, not the LAN host IP
+      if (inContainer && isRfc1918Block172(entry.address)) {
+        continue;
+      }
+      const candidate = `http://${entry.address}:${port}`;
+      if (isPrivateLanIpv4(entry.address)) {
+        if (!preferredLanUrls.includes(candidate)) preferredLanUrls.push(candidate);
+      } else {
+        if (!otherUrls.includes(candidate)) otherUrls.push(candidate);
       }
     }
   }
-  for (const candidate of [...privateUrls, ...otherUrls]) {
+  for (const candidate of [...preferredLanUrls, ...otherUrls]) {
     if (!urls.includes(candidate)) {
       urls.push(candidate);
     }
@@ -73,13 +113,25 @@ export function createApp(options: CreateAppOptions): Express {
   });
 
   app.get('/api/server-info', (req: Request, res: Response) => {
-    const protocol = req.protocol || 'http';
-    const host = req.get('host');
+    const forwardedProto = req.headers['x-forwarded-proto'];
+    const protocol =
+      (Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto) ||
+      req.protocol ||
+      'http';
+    const forwardedHost = req.headers['x-forwarded-host'];
+    const host =
+      (Array.isArray(forwardedHost) ? forwardedHost[0] : forwardedHost) ||
+      req.get('host') ||
+      null;
+    const inContainer = isRunningInContainer();
+    const lanUrls = getLanUrls(options.port, options.publicUrl, host, protocol, inContainer);
     const requestOrigin = host ? `${protocol}://${host}` : null;
-    const lanUrls = getLanUrls(options.port, options.publicUrl);
     res.json({
       lanUrls,
       primaryUrl: lanUrls[0] ?? requestOrigin ?? `http://localhost:${options.port}`,
+      port: options.port,
+      isContainer: inContainer,
+      needsHostIpHint: inContainer && lanUrls.length === 0,
     });
   });
 

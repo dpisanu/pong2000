@@ -413,6 +413,16 @@ export class WsGateway {
             this.sendError(state.ws, cmd.requestId, 'INVALID_PROFILE', nick.error, cmd.type);
             return;
           }
+          if (!this.sessions.isNicknameAvailable(nick.value, session.playerId)) {
+            this.sendError(
+              state.ws,
+              cmd.requestId,
+              'NICKNAME_TAKEN',
+              `Nickname "${nick.value}" is already taken. Please choose another.`,
+              cmd.type,
+            );
+            return;
+          }
           const avatar = await this.resolveValidatedAvatar(cmd.payload.avatarId);
           session.nickname = nick.value;
           session.avatarId = avatar.avatarId;
@@ -513,6 +523,16 @@ export class WsGateway {
     if (state.playerId) {
       const existing = this.sessions.getById(state.playerId);
       if (existing) {
+        if (!this.sessions.isNicknameAvailable(nick.value, existing.playerId)) {
+          this.sendError(
+            state.ws,
+            cmd.requestId,
+            'NICKNAME_TAKEN',
+            `Nickname "${nick.value}" is already taken. Please choose another.`,
+            cmd.type,
+          );
+          return;
+        }
         existing.nickname = nick.value;
         existing.avatarId = avatar.avatarId;
         existing.avatarUrl = avatar.avatarUrl;
@@ -521,10 +541,25 @@ export class WsGateway {
       }
     }
 
+    const recoverable = cmd.payload.recoveryToken
+      ? this.sessions.findByRecoveryToken(cmd.payload.recoveryToken)
+      : undefined;
+
+    if (!this.sessions.isNicknameAvailable(nick.value, recoverable?.playerId)) {
+      this.sendError(
+        state.ws,
+        cmd.requestId,
+        'NICKNAME_TAKEN',
+        `Nickname "${nick.value}" is already taken. Please choose another.`,
+        cmd.type,
+      );
+      return;
+    }
+
     let session: PlayerSession | null = null;
     let recovered = false;
 
-    if (cmd.payload.recoveryToken) {
+    if (cmd.payload.recoveryToken && recoverable) {
       const candidate = this.sessions.recoverSession({
         recoveryToken: cmd.payload.recoveryToken,
         nickname: nick.value,

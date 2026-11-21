@@ -117,10 +117,29 @@ export class SessionManager {
     return this.sessions.get(playerId);
   }
 
+  findByRecoveryToken(token: string): PlayerSession | undefined {
+    const playerId = this.recoveryIndex.get(token);
+    if (!playerId) return undefined;
+    return this.sessions.get(playerId);
+  }
+
   getByUploadToken(token: string): PlayerSession | undefined {
     const playerId = this.uploadTokenIndex.get(token);
     if (!playerId) return undefined;
     return this.sessions.get(playerId);
+  }
+
+  isNicknameAvailable(nickname: string, excludePlayerId?: string): boolean {
+    const normalized = nickname.trim().toLowerCase();
+    for (const session of this.sessions.values()) {
+      if (excludePlayerId && session.playerId === excludePlayerId) {
+        continue;
+      }
+      if (session.nickname.trim().toLowerCase() === normalized) {
+        return false;
+      }
+    }
+    return true;
   }
 
   markDisconnected(playerId: string): PlayerSession | undefined {

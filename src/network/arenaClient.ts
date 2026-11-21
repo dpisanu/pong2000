@@ -132,13 +132,15 @@ export class ArenaClient {
     return true;
   }
 
-  updateProfile(profile: PlayerProfile): boolean {
+  updateProfile(profile: PlayerProfile): string | null {
     this.profile = profile;
-    return this.send({
+    const requestId = this.nextRequestId();
+    const sent = this.send({
       type: 'profile.update',
-      requestId: this.nextRequestId(),
+      requestId,
       payload: profile,
     });
+    return sent ? requestId : null;
   }
 
   createChallenge(targetPlayerId: string): boolean {

@@ -15,6 +15,9 @@ interface ProfileSetupViewProps {
   mode: 'onboarding' | 'edit';
   initialProfile: PlayerProfile | null;
   uploadToken: string | null;
+  serverError?: string | null;
+  saving?: boolean;
+  onClearServerError?: () => void;
   onSave: (profile: PlayerProfile, pendingFile?: File | null) => void;
   onCancel?: () => void;
 }
@@ -25,6 +28,9 @@ export function ProfileSetupView({
   mode,
   initialProfile,
   uploadToken,
+  serverError,
+  saving = false,
+  onClearServerError,
   onSave,
   onCancel,
 }: ProfileSetupViewProps) {
@@ -215,6 +221,7 @@ export function ProfileSetupView({
               onChange={(e) => {
                 setNickname(e.target.value);
                 if (error) setError(null);
+                if (serverError) onClearServerError?.();
               }}
               maxLength={36}
               placeholder="e.g. Alex"
@@ -254,12 +261,12 @@ export function ProfileSetupView({
             </div>
           </div>
 
-          {error && (
+          {(error || serverError) && (
             <div
               role="alert"
               className="px-4 py-3 text-sm text-red-200 bg-red-950/50 border border-red-500/30 rounded-lg"
             >
-              {error}
+              {error ?? serverError}
             </div>
           )}
 
@@ -275,10 +282,14 @@ export function ProfileSetupView({
             )}
             <button
               type="submit"
-              disabled={uploading}
+              disabled={uploading || saving}
               className="px-6 py-2.5 text-sm font-semibold text-slate-950 bg-emerald-500 hover:bg-emerald-400 rounded-lg transition-colors whitespace-nowrap shrink-0 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300"
             >
-              {mode === 'onboarding' ? 'Enter Lobby' : 'Save Profile'}
+              {saving
+                ? 'Checking…'
+                : mode === 'onboarding'
+                  ? 'Enter Lobby'
+                  : 'Save Profile'}
             </button>
           </div>
         </form>

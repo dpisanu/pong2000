@@ -320,4 +320,62 @@ describe('WebSocket protocol & multiplayer integration', () => {
 
     a.client.ws.close();
   });
+
+  it('enforces case-insensitive unique nicknames across sessions and profile updates', async () => {
+    const srv = await createTestServer();
+    cleanups.push(srv.close);
+
+    const a = await connectClient(srv.port, 'Alex');
+    const b = await connectClient(srv.port, 'Jordan');
+
+    // New client attempting same nickname with different case is rejected with NICKNAME_TAKEN
+    const wsDup = new WebSocket(`ws://127.0.0.1:${srv.port}/ws`);
+    await new Promise<void>((resolve) => wsDup.once('open', () => resolve()));
+    const dupErrors: ServerEvent[] = [];
+    wsDup.on('message', (d) => dupErrors.push(JSON.parse(d.toString('utf8')) as ServerEvent));
+    wsDup.send(
+      JSON.stringify({
+        type: 'session.hello',
+        requestId: 'dup-hello',
+        payload: {
+          protocolVersion: PROTOCOL_VERSION,
+          profile: { nickname: 'alex', avatarId: 'gallery:ace-paddle' },
+        },
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 80));
+    expect(
+      dupErrors.some(
+        (ev) => ev.type === 'command.error' && ev.payload.code === 'NICKNAME_TAKEN',
+      ),
+    ).toBe(true);
+    wsDup.close();
+
+    // Existing client trying to rename to a taken nickname is rejected
+    b.client.send({
+      type: 'profile.update',
+      requestId: 'dup-rename',
+      payload: { nickname: 'ALEX', avatarId: 'gallery:rally-fox' },
+    });
+    const renameErr = await b.client.waitFor(
+      'command.error',
+      (ev) => ev.payload.code === 'NICKNAME_TAKEN',
+    );
+    expect(renameErr.payload.code).toBe('NICKNAME_TAKEN');
+
+    // Existing client updating avatar while keeping own nickname succeeds
+    b.client.send({
+      type: 'profile.update',
+      requestId: 'own-update',
+      payload: { nickname: 'Jordan', avatarId: 'gallery:rally-fox' },
+    });
+    const ack = await b.client.waitFor(
+      'command.ack',
+      (ev) => ev.requestId === 'own-update',
+    );
+    expect(ack.payload.commandType).toBe('profile.update');
+
+    a.client.ws.close();
+    b.client.ws.close();
+  });
 });

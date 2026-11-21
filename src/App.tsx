@@ -35,6 +35,8 @@ export default function App() {
   const [activeMatch, setActiveMatch] = useState<ActiveMatchSync | null>(null);
 
   const [editingProfile, setEditingProfile] = useState(false);
+  const [profileServerError, setProfileServerError] = useState<string | null>(null);
+  const [savingProfile, setSavingProfile] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [banner, setBanner] = useState<{ level: 'error' | 'info'; message: string } | null>(
     null,
@@ -42,11 +44,15 @@ export default function App() {
 
   const clientRef = useRef<ArenaClient | null>(null);
   const pendingUploadFileRef = useRef<File | null>(null);
-  const savedProfileRef = useRef<PlayerProfile | null>(savedProfile);
+  const pendingProfileUpdateRef = useRef<{
+    requestId: string;
+    profile: PlayerProfile;
+  } | null>(null);
+  const selfPlayerIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    savedProfileRef.current = savedProfile;
-  }, [savedProfile]);
+    selfPlayerIdRef.current = selfPlayerId;
+  }, [selfPlayerId]);
 
   const showBanner = useCallback((level: 'error' | 'info', message: string) => {
     setBanner({ level, message });
@@ -71,6 +77,8 @@ export default function App() {
           setLobbyPlayers(lobby);
           setActiveChallenge(nextChallenge);
           setActiveMatch(nextMatch);
+          setProfileServerError(null);
+          setSavingProfile(false);
 
           const normalizedProfile: PlayerProfile = {
             nickname: profile.nickname,
@@ -221,7 +229,44 @@ export default function App() {
           });
           break;
         }
+        case 'command.ack': {
+          const pending = pendingProfileUpdateRef.current;
+          if (pending && event.requestId === pending.requestId) {
+            pendingProfileUpdateRef.current = null;
+            setSavingProfile(false);
+            setProfileServerError(null);
+            setSavedProfile(pending.profile);
+            const stored = loadStoredProfile();
+            saveStoredProfile({
+              ...pending.profile,
+              recoveryToken: stored?.recoveryToken,
+            });
+            setEditingProfile(false);
+          }
+          break;
+        }
         case 'command.error': {
+          // Handle rejected profile update in edit modal
+          const pending = pendingProfileUpdateRef.current;
+          if (pending && event.requestId === pending.requestId) {
+            pendingProfileUpdateRef.current = null;
+            setSavingProfile(false);
+            setProfileServerError(event.payload.message);
+            break;
+          }
+
+          // Handle rejected initial handshake due to taken nickname or invalid profile
+          if (
+            !selfPlayerIdRef.current &&
+            (event.payload.code === 'NICKNAME_TAKEN' || event.payload.code === 'INVALID_PROFILE')
+          ) {
+            setSavingProfile(false);
+            setProfileServerError(event.payload.message);
+            setSavedProfile(null);
+            clientRef.current?.disconnect();
+            break;
+          }
+
           showBanner('error', event.payload.message);
           break;
         }
@@ -232,8 +277,6 @@ export default function App() {
           );
           break;
         }
-        case 'command.ack':
-          break;
       }
     },
     [showBanner],
@@ -275,20 +318,22 @@ export default function App() {
 
   const handleSaveOnboarding = (profile: PlayerProfile, pendingFile?: File | null) => {
     pendingUploadFileRef.current = pendingFile ?? null;
+    setProfileServerError(null);
+    setSavingProfile(true);
     setSavedProfile(profile);
     saveStoredProfile(profile);
     clientRef.current?.connect(profile);
   };
 
   const handleSaveEditProfile = (profile: PlayerProfile) => {
-    setSavedProfile(profile);
-    const stored = loadStoredProfile();
-    saveStoredProfile({
-      ...profile,
-      recoveryToken: stored?.recoveryToken,
-    });
-    clientRef.current?.updateProfile(profile);
-    setEditingProfile(false);
+    setProfileServerError(null);
+    const requestId = clientRef.current?.updateProfile(profile);
+    if (!requestId) {
+      setProfileServerError('Not connected to server. Please wait to reconnect.');
+      return;
+    }
+    setSavingProfile(true);
+    pendingProfileUpdateRef.current = { requestId, profile };
   };
 
   const handleReturnToLobby = () => {
@@ -296,13 +341,19 @@ export default function App() {
     setActiveMatch(null);
   };
 
-  // Show onboarding screen until player configures nickname & avatar
+  // Show onboarding screen until player configures a unique nickname & avatar
   if (!savedProfile) {
+    const stored = loadStoredProfile();
     return (
       <ProfileSetupView
         mode="onboarding"
-        initialProfile={null}
+        initialProfile={
+          stored ? { nickname: stored.nickname, avatarId: stored.avatarId } : null
+        }
         uploadToken={null}
+        serverError={profileServerError}
+        saving={savingProfile}
+        onClearServerError={() => setProfileServerError(null)}
         onSave={handleSaveOnboarding}
       />
     );
@@ -337,7 +388,10 @@ export default function App() {
             {!activeMatch && (
               <button
                 type="button"
-                onClick={() => setEditingProfile(true)}
+                onClick={() => {
+                  setProfileServerError(null);
+                  setEditingProfile(true);
+                }}
                 className="hover:text-white transition-colors whitespace-nowrap shrink-0"
               >
                 Edit Profile
@@ -418,7 +472,10 @@ export default function App() {
             onDeclineChallenge={(id) => clientRef.current?.declineChallenge(id)}
             onCancelChallenge={(id) => clientRef.current?.cancelChallenge(id)}
             onOpenShare={() => setShareOpen(true)}
-            onEditProfile={() => setEditingProfile(true)}
+            onEditProfile={() => {
+              setProfileServerError(null);
+              setEditingProfile(true);
+            }}
           />
         )}
       </div>
@@ -428,8 +485,16 @@ export default function App() {
           mode="edit"
           initialProfile={savedProfile}
           uploadToken={uploadToken}
+          serverError={profileServerError}
+          saving={savingProfile}
+          onClearServerError={() => setProfileServerError(null)}
           onSave={handleSaveEditProfile}
-          onCancel={() => setEditingProfile(false)}
+          onCancel={() => {
+            pendingProfileUpdateRef.current = null;
+            setSavingProfile(false);
+            setProfileServerError(null);
+            setEditingProfile(false);
+          }}
         />
       )}
 

@@ -26,7 +26,7 @@ Build and export the image while connected to the internet, then load it on an i
 
 ```bash
 # On a machine with Docker and internet access
-docker build -t lan-pong-arena:latest .
+docker build -f app.Dockerfile -t lan-pong-arena:latest .
 docker save -o lan-pong-arena.tar lan-pong-arena:latest
 
 # On the offline LAN host

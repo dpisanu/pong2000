@@ -2,7 +2,7 @@ services:
   lan-pong-arena:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: app.Dockerfile
     container_name: lan-pong-arena
     restart: unless-stopped
     ports:

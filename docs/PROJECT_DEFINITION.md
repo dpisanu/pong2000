@@ -1,7 +1,7 @@
 # LAN Pong Arena — Project Definition
 
-**Version:** 1.0  
-**Status:** Approved MVP specification  
+**Version:** 1.01  
+**Status:** Implemented MVP+ specification  
 **Date:** 2026-11-21  
 **Deployment:** Docker on a LAN host  
 **Clients:** Desktop browsers, keyboard input  
@@ -9,7 +9,7 @@
 
 ## 1. Executive summary
 
-LAN Pong Arena is a self-hosted, browser-native, two-player Pong application for a local area network (LAN). Each player opens the same server URL in a desktop browser, creates a lightweight profile, discovers available players in a live lobby, issues or accepts challenges, and plays a synchronized match. Multiple independent matches may run simultaneously. The system does not require internet access, accounts, or cloud services.
+LAN Pong Arena is a self-hosted, browser-native, two-player Pong application for a local area network (LAN). Each player opens the same server URL in a desktop browser, creates a lightweight profile with a unique nickname, discovers available players in a live lobby, issues or accepts challenges, and plays a synchronized match. Multiple independent matches may run simultaneously. The system does not require internet access, accounts, or cloud services.
 
 **Architectural decision:** A single Dockerized Node.js application serves the browser client and maintains WebSocket connections. The server owns lobby, matchmaking, and game simulation state. Browsers send inputs and render authoritative snapshots.
 
@@ -17,12 +17,12 @@ LAN Pong Arena is a self-hosted, browser-native, two-player Pong application for
 
 ### Goals
 1. Allow two people on separate LAN devices to start and finish a Pong match without installation beyond a browser.
-2. Provide a live player directory and explicit challenge/accept workflow.
+2. Provide a live player directory with unambiguous unique nicknames and an explicit challenge/accept workflow.
 3. Maintain consistent game state through a server-authoritative simulation.
 4. Handle disconnections, reconnects, invitations, and rematches predictably.
 5. Run as one Docker Compose service without external dependencies.
 6. Support nickname, gallery avatar, and uploaded avatar images.
-7. Keep implementation comprehensible for an AI-assisted coding session.
+7. Make LAN discovery and sharing effortless via accurate host IP detection and an offline QR code.
 
 ### Success measures
 - Two devices can discover one another and complete a match on an isolated LAN.
@@ -42,15 +42,17 @@ LAN Pong Arena is a self-hosted, browser-native, two-player Pong application for
 
 ### F1. Player profile
 - On first visit, ask for a nickname (1–24 visible characters after trimming) and avatar.
-- Avatar can be selected from bundled predefined images **or uploaded** from the player's device.
-- Accept PNG, JPEG, or WebP uploads; enforce a 1 MiB file limit and decode/validate server-side. Re-encode to a safe bounded raster format, e.g. WebP, max 256×256 px; never serve original untrusted bytes or SVG.
-- Uploaded avatars are stored in a Docker volume and exposed via generated opaque IDs/URLs. Use a generic avatar when unavailable.
-- Store nickname, avatar reference, and a reconnect credential in browser localStorage. The server assigns an opaque player/session ID. The nickname is not a unique identifier.
-- Editing the profile updates lobby presence; changing an avatar does not interrupt a match.
+- **Unique nicknames (v1.01):** Nicknames are enforced as case-insensitively unique across all active and disconnect-grace sessions (`NICKNAME_TAKEN` returned on collision during `session.hello` or `profile.update`). Reconnecting with a valid recovery token or updating an avatar while keeping one's own nickname is permitted.
+- Avatar can be selected from 8 bundled predefined SVG emblems **or uploaded** from the player's device (including during initial onboarding, where the file is queued and uploaded immediately once the session handshake issues an upload token).
+- Accept PNG, JPEG, or WebP uploads; enforce a 1 MiB file limit and decode/validate server-side via `sharp`. Re-encode to sanitized 256×256 px WebP (stripping EXIF/metadata); never serve original untrusted bytes or SVG.
+- Uploaded avatars are stored in a Docker volume and exposed via generated opaque IDs/URLs, with a per-session rate limit and stored avatar cap (obsolete uploads are pruned automatically). Use `/avatars/default.svg` as a generic fallback when unavailable.
+- Store nickname, avatar reference, and a reconnect credential in browser `localStorage`. The server assigns an opaque player/session ID (`pl_*`) as the canonical internal identifier and holds the HTTP upload bearer token strictly in client memory.
+- Editing the profile updates lobby presence only after server validation succeeds; rejected edits (such as duplicate nicknames) keep the editor open with inline feedback and do not overwrite saved preferences. Changing an avatar does not interrupt a match.
 - No password, registration, or identity verification.
 
 ### F2. Live lobby
 - Show connected players with nickname, avatar, and status (`AVAILABLE`, `INVITED`, `IN_GAME`, `DISCONNECTED`).
+- Provide client-side filtering between `All Players` and `Available Only`.
 - Update the list automatically via WebSocket events; no manual refresh.
 - Do not allow challenging oneself, offline players, or players not `AVAILABLE`.
 - Multiple concurrent games are supported; the lobby reflects player availability accurately.
@@ -59,44 +61,45 @@ LAN Pong Arena is a self-hosted, browser-native, two-player Pong application for
 ### F3. Challenges
 - An available player may invite one other available player.
 - The recipient can accept or decline; the initiator can cancel.
-- Invitations expire after 30 seconds.
+- Invitations expire after 30 seconds with a live countdown in the lobby panel.
 - Server handles races atomically: at most one active invitation per player, no double-booking, no simultaneous accept into multiple matches.
 - Challenge outcomes are sent to both affected players, with structured error codes for invalid operations.
 - On acceptance, create a match and assign paddle sides; notify both clients.
 
 ### F4. Pong gameplay
-- Classic 2D Pong: one paddle per player, ball, walls, collision response, scores, center serve.
-- Desktop controls: W/S and Arrow Up/Arrow Down; prevent browser scrolling while game controls are active.
+- Classic 2D Pong on a `16:10` logical arena: one paddle per player, ball, walls, swept/sub-stepped collision response, scores, center serve.
+- Desktop controls: `W`/`S` and `ArrowUp`/`ArrowDown`; prevent browser scrolling (`ArrowUp`, `ArrowDown`, `Space`) while match controls are active.
 - Server is authoritative for paddle positions, ball physics, collision detection, scoring, and win condition.
-- Fixed simulation timestep: 60 Hz. Broadcast snapshots at approximately 20–30 Hz. Browser renders via `requestAnimationFrame`, interpolating between snapshots.
-- First to 5 points wins; show scores and opponent identity.
-- Ball serves after a short countdown, including after a point. Use deterministic bounded speeds and sensible collision angles; prevent the ball from tunneling through paddles.
-- Client sends key state changes or normalized movement intent, not authoritative positions.
+- Fixed simulation timestep: 60 Hz (`4` collision substeps per tick to prevent ball tunneling). Broadcast snapshots at 30 Hz (every 2 ticks). Browser renders via `requestAnimationFrame`, interpolating between snapshots.
+- First to 5 points wins; show scores, avatars, side indicator, and opponent connection status in an unobtrusive top HUD.
+- Synthesized Web Audio API sound effects (paddle hits, wall bounces, countdown ticks, point chimes, match finish) with a mute/unmute toggle in the match HUD; zero external audio assets.
+- Ball serves after a short countdown (`3s` initial, `1.5s` after a point, `2s` on reconnect resume). Use deterministic bounded speeds and hit-offset bounce angles.
+- Client sends directional intent (`-1`, `0`, `1`) with monotonic `seq` only on state changes; clears intent on window blur/visibility loss.
 - Input is associated with the authenticated WebSocket session; clients cannot control another player's paddle.
 
 ### F5. Match lifecycle
 - Match transitions from `COUNTDOWN` to `PLAYING`, then `FINISHED`, or `PAUSED_DISCONNECT` and possibly `FORFEITED`.
-- On match end, show winner, final score, and actions to return to lobby or request a rematch.
-- Rematch requires agreement from both players; reset scores and game physics and optionally swap sides.
-- Returning to lobby marks player `AVAILABLE` once the current match is closed.
-- An explicit leave-match action is treated as a forfeit while a match is active.
+- On match end, show winner, final score, outcome reason, and actions to return to lobby or request a rematch.
+- Rematch requires agreement from both players; creates a **new match ID**, resets scores and physics, and automatically swaps paddle sides (`left` ↔ `right`).
+- Returning to lobby marks player `AVAILABLE` once the current match is closed and cancels any pending rematch request.
+- An explicit leave-match action requires an in-UI two-step confirmation (`Leave Match` → `Confirm Forfeit`) while active and is treated as a forfeit.
 
 ### F6. Connection handling
-- Server detects disconnect via WebSocket close and heartbeat/ping-pong.
-- When a player disconnects during a match, pause simulation and allow a 10-second reconnect grace period.
-- Browser reconnects with a random, high-entropy session-recovery token; server rebinds the session after validation. Rotate the token after successful recovery where practical.
-- On successful reconnection, send full authoritative lobby/match state and resume play after a short countdown.
+- Server detects disconnect via WebSocket close and 5-second heartbeat ping/pong (15-second timeout).
+- When a player disconnects during a match, pause simulation and allow a 10-second reconnect grace period with a live countdown overlay.
+- Browser reconnects with bounded exponential backoff (`0.5s`–`8s`) and a high-entropy session-recovery token; server rebinds the session after validation and rotates both recovery and upload tokens.
+- On successful reconnection, send full authoritative lobby/match state and resume play after a 2-second countdown.
 - If grace period expires, disconnected player forfeits and opponent receives a result. Release both player reservations.
-- If a player disconnects while available or invited, remove/cancel their active invitation and update the lobby promptly.
+- If a player disconnects while available or invited, cancel their active invitation immediately and remove the lobby entry after a brief refresh window (3 seconds) if not recovered.
 - On server restart, volatile sessions and matches are reset. Clients recover to profile/lobby state, not the old match.
 
 ### F7. LAN hosting
-- Package server and built frontend into one Docker image, with a `compose.yaml` exposing port 3000/TCP and a named volume for uploaded avatars.
+- Package server and built frontend into one Docker image (`app.Dockerfile` referenced by `compose.yaml`, plus `Dockerfile`), exposing port `3000/TCP` and mounting named volume `avatars_data` at `/data/avatars`.
 - Bind the HTTP/WebSocket listener to `0.0.0.0` inside the container.
 - Provide `/healthz` endpoint and Docker healthcheck.
 - Client connects to WebSocket using the page's current host and appropriate `ws:`/`wss:` scheme; never hardcode `localhost` or a LAN IP.
-- Share `http://<LAN_HOST_IP>:3000` with players. Optional QR code may be shown, but mDNS/hostname discovery is not required.
-- No internet connectivity required after images and dependencies have been built/pulled. Document offline image preparation.
+- **Host LAN IP Discovery & Share Dialog (v1.01):** `/api/server-info` prioritizes `PUBLIC_URL`, then the incoming non-loopback `Host`/`X-Forwarded-Host` header, then non-container LAN IPv4 interfaces—explicitly filtering out link-local (`169.254.x.x`) and Docker bridge (`172.16.0.0/12`) addresses when running inside a container. The **Share LAN URL** modal displays a copyable URL and an offline-generated QR code, and provides an inline Host LAN IP entry field when opened via `localhost` inside Docker without `PUBLIC_URL`.
+- No internet connectivity required after images and dependencies have been built/pulled. Document offline image preparation (`docker save` / `docker load`).
 - The Docker host firewall must allow the exposed port; include troubleshooting instructions.
 
 ## 5. Out of scope
@@ -113,7 +116,7 @@ LAN Pong Arena is a self-hosted, browser-native, two-player Pong application for
 
 ```text
 Desktop Browser A                  Desktop Browser B
-  React UI + Canvas                  React UI + Canvas
+  React UI + Canvas + WebAudio       React UI + Canvas + WebAudio
   localStorage profile               localStorage profile
           | HTTP + WebSocket                  |
           +----------------+------------------+
@@ -134,36 +137,40 @@ Desktop Browser A                  Desktop Browser B
                            |
                    In-memory active state
 
-               Named Docker volume: sanitized avatars
+               Named Docker volume: sanitized WebP avatars
 ```
 
-### Proposed stack
-- Client: TypeScript, React, Vite, HTML5 Canvas 2D.
-- Server: Node.js, TypeScript, Fastify (HTTP/static/uploads) and `ws` (WebSocket), or an equivalently small HTTP framework.
-- Shared: TypeScript message schemas/types, preferably runtime-validated with Zod or equivalent.
-- Build: multi-stage Dockerfile; production runtime serves compiled assets and backend.
-- Tests: Vitest for physics/state machine, integration tests for WebSocket protocol, Playwright for two-browser flows where feasible.
+### Implemented stack
+- **Client:** TypeScript, React 19, Vite, Tailwind CSS, HTML5 Canvas 2D, `qrcode` (offline QR rendering), Web Audio API.
+- **Server:** Node.js 22 (`--experimental-strip-types`), Express, `ws` (WebSocket), `sharp` (image validation & WebP re-encoding).
+- **Shared:** TypeScript protocol schemas, types, constants, and Zod runtime validation.
+- **Build:** Multi-stage Docker build (`app.Dockerfile` & `Dockerfile`) using `--legacy-peer-deps`; production runtime serves compiled `dist/` assets and backend on port 3000.
+- **Tests:** Vitest unit tests (physics, validation, avatar processing, LAN URL discovery) and WebSocket integration tests (races, expiry, match isolation, reconnect recovery, disconnect forfeit, unique nicknames).
 
 ### Responsibilities and boundaries
-- **Client owns:** UI, keyboard capture, local preferences, avatar selection/upload, snapshot interpolation, connection UX.
-- **Server owns:** identity/session binding, presence, invitation validity, paddle intent validation, physics, scores, match outcome, reconnect deadlines.
+- **Client owns:** UI, keyboard capture, local preferences, avatar selection/upload, snapshot interpolation, Web Audio FX, connection UX.
+- **Server owns:** identity/session binding, nickname uniqueness, presence, invitation validity, paddle intent validation, physics, scores, match outcome, reconnect deadlines.
 - **Shared package owns:** versioned protocol definitions, validation schemas, enums and error codes.
-- **Avatar volume owns:** only processed avatar files; game/lobby state is never persisted there.
-- **Browser localStorage owns:** profile preferences and recovery credential, not authoritative game state.
+- **Avatar volume owns:** only processed WebP avatar files; game/lobby state is never persisted there.
+- **Browser localStorage owns:** profile preferences and recovery credential, not authoritative game state or upload tokens.
 
-### Suggested repository layout
+### Repository layout
 
 ```text
 lan-pong-arena/
-  client/src/{app,components,lobby,profile,game,network}/
-  server/src/{http,ws,sessions,lobby,challenges,matches,engine,avatars}/
-  shared/src/{protocol,types,validation}/
-  tests/{unit,integration,e2e}/
+  src/{audio,components,game,lobby,network,profile,storage}/
+  server/src/{avatars,challenges,engine,http,matches,sessions,ws}/
+  shared/src/{constants,protocol,types,validation}/
+  public/avatars/
+  tests/{unit,integration}/
+  docs/PROJECT_DEFINITION.md
+  server.ts
+  app.Dockerfile
   Dockerfile
   compose.yaml
   .dockerignore
+  .env.example
   README.md
-  PROJECT_DEFINITION.md
 ```
 
 ## 7. HTTP endpoints
@@ -171,17 +178,18 @@ lan-pong-arena/
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/` | Serve browser app |
-| GET | `/healthz` | Readiness/health status |
-| POST | `/api/avatars` | Authenticated avatar upload with size/type validation; return avatar ID and URL |
-| GET | `/api/avatars/:id` | Serve processed image with safe content type and caching |
+| GET | `/healthz` | Readiness/health status (`status`, `uptimeSeconds`, `activePlayers`, `activeMatches`) |
+| GET | `/api/server-info` | Return prioritized host LAN URLs, port, and container hint flags |
+| POST | `/api/avatars` | Bearer-authenticated binary image upload (`PNG`/`JPEG`/`WebP` ≤ 1 MiB); returns `avatarId` & `avatarUrl` |
+| GET | `/api/avatars/:id` | Serve processed WebP image with `nosniff` and immutable caching |
 | GET | `/ws` | WebSocket upgrade on same host/port |
 
-Avatar upload authorization uses the session credential issued by the server, sent in an HTTP authorization header. Avoid logging tokens or exposing them in URLs. Implement upload rate limits and cap per-session stored avatar count; replace and delete obsolete avatars to avoid unbounded storage. For a simple LAN MVP, uploads may be available after the initial WebSocket handshake establishes a session.
+Avatar upload authorization uses the server-issued `uploadToken` held in client memory and sent in the `Authorization: Bearer <token>` header. Tokens are never logged or placed in URLs. Upload rate limits (`6` uploads / 60s) and per-session stored avatar caps (`2` files, pruning oldest) prevent unbounded storage.
 
 ## 8. WebSocket protocol
 
 ### Envelope
-All messages are JSON and contain `type`, `requestId` (for commands and acknowledgements), and `payload`. Server events may additionally contain `serverTime` and `protocolVersion`. Set protocol version to `1`; reject incompatible clients with a helpful error.
+All messages are JSON and contain `type`, `requestId` (for commands and acknowledgements), and `payload`. Server events additionally contain `serverTime` and `protocolVersion`. Protocol version is `1`; incompatible clients receive `PROTOCOL_MISMATCH`.
 
 Example command:
 
@@ -189,7 +197,7 @@ Example command:
 {
   "type": "challenge.create",
   "requestId": "req-123",
-  "payload": { "targetPlayerId": "player-456" }
+  "payload": { "targetPlayerId": "pl_456" }
 }
 ```
 
@@ -198,25 +206,27 @@ Example authoritative game snapshot:
 ```json
 {
   "type": "match.snapshot",
+  "protocolVersion": 1,
+  "serverTime": 1795300000000,
   "payload": {
-    "matchId": "match-123",
+    "matchId": "mt_123",
     "tick": 1452,
     "phase": "PLAYING",
-    "ball": { "x": 0.52, "y": 0.31 },
+    "ball": { "x": 0.52, "y": 0.31, "vx": 0.72, "vy": -0.18 },
     "paddles": { "leftY": 0.4, "rightY": 0.58 },
     "score": { "left": 2, "right": 3 }
   }
 }
 ```
 
-Coordinates are normalized to the logical playfield (0–1); paddle Y coordinates refer to their centers. Geometry and velocities are defined in shared constants; the client does not simulate authoritative physics.
+Coordinates are normalized to the logical playfield (`0–1`); paddle Y coordinates refer to their centers. Geometry and velocities are defined in shared constants; the client does not simulate authoritative physics.
 
 ### Client → server commands
 
 | Type | Key payload | Behavior |
 |---|---|---|
-| `session.hello` | `protocolVersion`, `profile`, optional `recoveryToken` | Establish/recover player session |
-| `profile.update` | `nickname`, `avatarId` | Validate and broadcast changes |
+| `session.hello` | `protocolVersion`, `profile`, optional `recoveryToken` | Validate unique nickname, establish/recover session |
+| `profile.update` | `nickname`, `avatarId` | Validate unique nickname & avatar, broadcast changes |
 | `challenge.create` | `targetPlayerId` | Reserve invitation if both available |
 | `challenge.accept` | `challengeId` | Atomically start match |
 | `challenge.decline` | `challengeId` | End invitation |
@@ -231,28 +241,27 @@ Coordinates are normalized to the logical playfield (0–1); paddle Y coordinate
 
 | Type | Purpose |
 |---|---|
-| `session.ready` | Player ID, fresh recovery token, full lobby/match resync state |
+| `session.ready` | Player ID, fresh recovery token, memory-only upload token, full lobby/match resync state |
 | `lobby.snapshot` | Initial authoritative roster |
 | `lobby.player.upsert` / `lobby.player.remove` | Incremental presence changes |
 | `challenge.received` | Incoming invitation and expiration |
-| `challenge.updated` | Accepted/declined/cancelled/expired and reason |
+| `challenge.updated` | Accepted/declined/cancelled/expired/invalidated and reason |
 | `match.started` | Match ID, side assignment, participants, initial state |
 | `match.snapshot` | Tick-stamped authoritative state |
 | `match.phase` | Countdown, paused, resumed, finished |
 | `match.finished` | Winner, final score, outcome reason |
 | `match.rematch.updated` | Rematch request/acceptance state |
 | `command.ack` | Command accepted, matching request ID |
-| `command.error` | Rejected command, matching request ID, stable error code |
+| `command.error` | Rejected command, matching request ID, stable error code (`NICKNAME_TAKEN`, `INVALID_PROFILE`, `PLAYER_UNAVAILABLE`, etc.) |
 | `server.notice` | Restart/maintenance or other user-facing notice |
 
 ### Protocol invariants
-- Commands are validated against schemas and current state; never trust IDs or coordinates sent by clients.
+- Commands are validated against Zod schemas and current state; never trust IDs or coordinates sent by clients.
 - Server derives actor identity from the WebSocket session, not from a claimed `playerId` in a message.
 - Only the two participants receive detailed match snapshots; all lobby participants receive presence changes.
 - A command cannot affect a match unless the sender is a participant.
 - Include monotonic `tick` and input `seq`; ignore stale snapshots on the client and stale input sequences on the server.
-- Enforce max message size, rate limits, and bounded queues. Reject malformed JSON safely.
-- Acknowledge commands and use request IDs to suppress accidental duplicate actions.
+- Enforce max message size (`16 KiB`), per-socket rate limits, `Origin` verification, and bounded request deduplication queues. Reject malformed JSON safely.
 
 ## 9. State machines
 
@@ -262,13 +271,13 @@ Coordinates are normalized to the logical playfield (0–1); paddle Y coordinate
 CONNECTING -> AVAILABLE
 AVAILABLE -> INVITED -> IN_GAME
 INVITED -> AVAILABLE           (decline, cancel, timeout)
-IN_GAME -> AVAILABLE           (match closed)
+IN_GAME -> AVAILABLE           (match closed / lobby.join)
 ANY_CONNECTED -> DISCONNECTED  (socket loss)
 DISCONNECTED -> PRIOR_STATE    (valid recovery within grace window)
 DISCONNECTED -> REMOVED        (timeout / session expiry)
 ```
 
-A player may have only one active match or invitation. For an in-game disconnect, retain match membership while paused. For lobby/invitation disconnect, cancel invitations immediately; remove or mark the player offline until recovery policy expires.
+A player may have only one active match or invitation. For an in-game disconnect, retain match membership while paused. For lobby/invitation disconnect, cancel invitations immediately and remove the session after a 3-second grace window if not recovered.
 
 ### Challenge state
 
@@ -292,49 +301,49 @@ COUNTDOWN -> PAUSED_DISCONNECT
 PAUSED_DISCONNECT -> COUNTDOWN (recovered)
 PAUSED_DISCONNECT -> FORFEITED (grace expired)
 PLAYING -> FINISHED           (winning score)
-COUNTDOWN/PLAYING -> FORFEITED (explicit leave)
+COUNTDOWN/PLAYING/PAUSED_DISCONNECT -> FORFEITED (explicit leave)
 FINISHED/FORFEITED -> CLOSED  (return to lobby / rematch resolution)
 ```
 
-Rematch creates a **new match ID**, after both players agree, rather than resurrecting a finished match. When a match becomes terminal, stop its simulation loop and release resources.
+Rematch creates a **new match ID** with swapped sides after both players agree, rather than resurrecting a finished match. When a match becomes terminal, stop its simulation loop and release resources.
 
 ## 10. Game rules and simulation
 
-- Logical arena dimensions are fixed and independent of browser viewport; Canvas scales to fit.
+- Logical arena dimensions are fixed (`16:10` aspect ratio) and independent of browser viewport; Canvas scales crisply with `devicePixelRatio`.
 - Two vertical paddles, one ball, top/bottom wall bounce, paddle bounce, and goal boundaries.
 - Paddle velocity is bounded and server-controlled. Clamp paddles inside the arena.
 - Ball speed and bounce angle are deterministic given current state and collision point; cap speed to preserve playability.
-- Simulation uses an accumulator/fixed delta at 60 Hz, with a cap on catch-up steps to avoid spiraling after host stalls.
+- Simulation uses an accumulator/fixed delta at 60 Hz, with 4 collision substeps and a cap on catch-up steps (`4`) to avoid spiraling after host stalls.
 - A goal increments exactly one player's score, recenters the ball, and starts a new countdown.
 - First player to 5 points ends the match. No win-by-two requirement.
-- Server uses monotonic time for deadlines and simulation scheduling.
-- Interpolate between received snapshots for visual smoothness; do not use client-rendered state for scoring or collision decisions.
+- Server uses monotonic time (`performance.now()`) for deadlines and simulation scheduling.
+- Client interpolates between received snapshots for visual smoothness; never uses client-rendered state for scoring or collision decisions.
 - Define paddle side mapping once in `match.started`; left/right ownership remains stable during a match.
 
 ## 11. Reliability, security, and operational constraints
 
 ### Reliability
-- Heartbeat at approximately 5-second intervals, with a bounded timeout; distinguish transient network loss from voluntary match leave.
+- Heartbeat at 5-second intervals, with a 15-second timeout; distinguish transient network loss from voluntary match leave.
 - Reconnect grace for in-game sessions: 10 seconds. If both players disconnect, pause and apply independent deadlines; close match when recovery is impossible.
-- Browser should retry WebSocket connection with bounded exponential backoff and show connection status.
+- Browser retries WebSocket connection with bounded exponential backoff (`0.5s`–`8s`) and displays connection status.
 - Reconnect resynchronizes from a full snapshot rather than replaying every missed event.
 - Server restart clears all active matches and presence; saved browser profile and processed avatars remain.
-- Do not leak timers, intervals, or WebSocket listeners after match closure.
+- Clear all timers, intervals, and WebSocket listeners upon match closure and graceful `SIGTERM`/`SIGINT` shutdown.
 
 ### Basic security
-- Validate nickname length, avatar ownership/reference, image type and dimensions, and all message payloads.
-- Generate cryptographically random session/recovery tokens; do not use nicknames as credentials.
-- Treat session token as a bearer secret; do not log it, put it in a URL, or expose it to other players.
-- Check WebSocket `Origin` against the configured application origin(s); limit cross-origin upload requests.
-- Use upload and WebSocket rate limits; set body and message size caps.
-- Re-encode uploads to remove metadata and unsafe content; use non-guessable avatar IDs and appropriate response headers.
-- HTTP is acceptable only on a trusted LAN for the MVP. Traffic and recovery tokens are not encrypted; document this limitation. HTTPS/WSS may be added later.
+- Validate nickname length and uniqueness, avatar ownership/existence, image magic bytes and dimensions, and all message payloads.
+- Generate cryptographically random session/recovery/upload tokens; do not use nicknames as credentials.
+- Treat tokens as bearer secrets; never log them, put them in URLs, or expose them to other players.
+- Check WebSocket `Origin` and `POST /api/avatars` `Origin` against the request `Host` or `ALLOWED_ORIGINS`.
+- Enforce upload and WebSocket rate limits; set body (`1 MiB`) and WS payload (`16 KiB`) size caps.
+- Re-encode uploads to 256×256 WebP to remove metadata and unsafe content; reject SVG payloads; enforce `path.resolve` + `path.sep` storage confinement; serve with `X-Content-Type-Options: nosniff`.
+- HTTP is acceptable only on a trusted LAN for the MVP. Traffic and recovery tokens are not encrypted; document this limitation. HTTPS/WSS may be added via a TLS reverse proxy.
 
 ### Operational requirements
-- One Docker Compose command starts the app: `docker compose up -d --build`.
-- One TCP port exposed (default 3000), configurable via environment.
-- Named volume retains processed avatars across container replacement.
-- Provide healthcheck, logs, graceful SIGTERM shutdown, and a `.env.example`.
+- One Docker Compose command starts the app: `docker compose up -d --build` (using `app.Dockerfile`).
+- One TCP port exposed (default `3000`), configurable via `PORT` environment variable.
+- Named volume `avatars_data` retains processed avatars across container replacement.
+- Provide `/healthz` endpoint, Docker healthcheck, structured JSON server logs (without secrets), graceful `SIGTERM` shutdown, and `.env.example`.
 - No database or cloud service; match and presence data stay in memory.
 - Document Docker image preloading for internet-free operation (`docker save` / `docker load`).
 - Provide clear troubleshooting for wrong host IP, port firewall, client isolation, and WebSocket upgrade failure.
@@ -344,13 +353,13 @@ Rematch creates a **new match ID**, after both players agree, rather than resurr
 | Category | MVP target |
 |---|---|
 | Browser support | Current desktop Chrome, Firefox, Edge, Safari |
-| Responsiveness | Playable at common laptop resolutions; Canvas preserves aspect ratio |
+| Responsiveness | Playable at common laptop resolutions; Canvas preserves `16:10` aspect ratio |
 | Concurrency | At least 4 concurrent matches / 8 active players on a typical laptop host |
-| Game cadence | 60 Hz authoritative simulation, 20–30 Hz snapshot broadcast |
-| Usability | No installation, no account, visible connection state and errors |
+| Game cadence | 60 Hz authoritative simulation, 30 Hz snapshot broadcast |
+| Usability | No installation, no account, visible connection state, inline errors, offline QR share |
 | Offline operation | No external runtime calls, CDNs, or hosted fonts |
-| Maintainability | Shared schemas, modular server components, documented setup |
-| Observability | Structured logs for connection, invitation, match, disconnect, errors; no secrets |
+| Maintainability | Shared Zod schemas, modular server components, documented setup |
+| Observability | Structured logs for startup and shutdown; health endpoint; no secrets |
 | Accessibility baseline | Keyboard focus, readable labels, sufficient contrast; gameplay keyboard-only |
 
 Performance values are design targets to verify on real hardware, not guaranteed latency measurements.
@@ -358,68 +367,64 @@ Performance values are design targets to verify on real hardware, not guaranteed
 ## 13. Acceptance criteria / definition of done
 
 ### Functional acceptance scenarios
-- [ ] **A01 Profile:** A player can enter a nickname, select a bundled avatar, refresh, and retain the profile.
-- [ ] **A02 Upload:** A player can upload a valid PNG/JPEG/WebP image, see the processed avatar in lobby/game, and retain it after container restart. Invalid/oversized files are rejected clearly.
-- [ ] **A03 Presence:** Two devices connect and see each other's nickname/avatar/status without refresh.
-- [ ] **A04 Challenge:** A player can invite another, who sees an invitation and can accept or decline.
-- [ ] **A05 Expiry/cancel:** Invitation cancellation and 30-second expiry return both players to a valid available state.
-- [ ] **A06 Race safety:** Simultaneous conflicting challenges cannot put a player into two matches.
-- [ ] **A07 Match start:** Acceptance creates exactly one match; each browser receives a different paddle assignment.
-- [ ] **A08 Controls:** Each keyboard controls only its own paddle; the server clamps paddle positions.
-- [ ] **A09 Consistency:** Ball, collisions, and scores agree on both devices; first to five wins.
-- [ ] **A10 End/rematch:** Both see the result, can return to lobby, and can mutually start a new match.
-- [ ] **A11 Reconnect:** A player reconnecting within 10 seconds resumes the paused match from authoritative state.
-- [ ] **A12 Forfeit:** A player who does not reconnect within 10 seconds forfeits; the other player is notified and can return to lobby.
-- [ ] **A13 Multiple matches:** Two separate pairs play concurrently without receiving each other's private snapshots.
-- [ ] **A14 Restart:** Restarting the container clears active matches but retains stored avatars and browser-local profiles.
-- [ ] **A15 LAN:** The app is usable from two LAN devices without internet access after deployment assets are available.
-- [ ] **A16 Validation:** Invalid commands, malformed messages, unauthorized match input, and invalid uploads do not crash the server.
+- [x] **A01 Profile:** A player can enter a unique nickname (1–24 chars), select a bundled avatar, refresh, and retain the profile while preserving session continuity.
+- [x] **A02 Unique Nicknames (v1.01):** Attempting to join (`session.hello`) or rename (`profile.update`) to an already-active nickname (case-insensitive) is rejected with `NICKNAME_TAKEN` and inline feedback without overwriting saved preferences or disrupting other players.
+- [x] **A03 Upload:** A player can upload a valid PNG/JPEG/WebP image (including queued upload during initial onboarding), see the processed 256×256 WebP avatar in lobby/game, and retain it after container restart. Invalid, SVG, or oversized (> 1 MiB) files are rejected clearly.
+- [x] **A04 Presence:** Two devices connect and see each other's nickname/avatar/status without refresh, with live filtering (`All Players` / `Available Only`).
+- [x] **A05 Challenge:** A player can invite another, who sees an invitation with a live 30-second countdown and can accept or decline.
+- [x] **A06 Expiry/cancel:** Invitation cancellation and 30-second expiry return both players to a valid available state.
+- [x] **A07 Race safety:** Simultaneous conflicting challenges cannot put a player into two matches.
+- [x] **A08 Match start:** Acceptance creates exactly one match; each browser receives a different paddle assignment.
+- [x] **A09 Controls & Audio:** Each keyboard controls only its own paddle (`W/S` or `↑/↓`), browser scrolling is suppressed during active play, server clamps paddle positions, and the HUD provides an audio mute toggle plus a two-step forfeit leave confirmation.
+- [x] **A10 Consistency:** Ball, collisions, and scores agree on both devices; first to five wins.
+- [x] **A11 End/rematch:** Both see the result, can return to lobby, and can mutually start a new match (new match ID with swapped sides).
+- [x] **A12 Reconnect:** A player reconnecting within 10 seconds resumes the paused match from authoritative state with rotated tokens.
+- [x] **A13 Forfeit:** A player who does not reconnect within 10 seconds forfeits; the other player is notified and can return to lobby.
+- [x] **A14 Multiple matches:** Two separate pairs play concurrently without receiving each other's private snapshots.
+- [x] **A15 Restart:** Restarting the container clears active matches but retains stored avatars and browser-local profiles.
+- [x] **A16 LAN & Share URL (v1.01):** The app is usable from two LAN devices without internet access; **Share LAN URL** displays the real host LAN URL (from `PUBLIC_URL`, non-loopback `Host` header, or host network interface) and offline QR code without exposing Docker container bridge (`172.16–31.x.x`) or link-local (`169.254.x.x`) IPs, and offers an inline host IP input when accessed via `localhost` in Docker.
+- [x] **A17 Validation:** Invalid commands, malformed messages, unauthorized match input, and invalid uploads do not crash the server.
 
 ### Engineering definition of done
-- [ ] Clean Docker build and Compose startup from README instructions.
-- [ ] Unit tests cover wall/paddle collision, score, win condition, and state transitions.
-- [ ] Integration tests cover challenge race, disconnect timeout, reconnect, and match isolation.
-- [ ] End-to-end manual test performed on two physical LAN devices.
-- [ ] No known blocker or critical defect in the accepted scenarios.
-- [ ] No runtime dependency on external APIs, hosted assets, or cloud services.
-- [ ] README includes configuration, startup, sharing LAN URL, and troubleshooting.
+- [x] Clean Docker build (`app.Dockerfile`) and Compose startup (`compose.yaml`) from README instructions.
+- [x] Unit tests cover wall/paddle collision, anti-tunneling, score, nickname/avatar validation, WebP sanitization, and LAN URL filtering (`tests/unit/`).
+- [x] Integration tests cover challenge race, expiry, disconnect timeout, reconnect recovery, match isolation, and unique nickname enforcement (`tests/integration/`).
+- [x] Verified on Docker Compose LAN host (`/healthz`, container build, multi-client play).
+- [x] No runtime dependency on external APIs, hosted assets, or cloud services.
+- [x] README includes configuration, startup, sharing LAN URL, offline `docker save`/`load`, and troubleshooting.
 
 ## 14. Implementation milestones
 
-| Milestone | Deliverables | Exit gate |
+| Milestone | Deliverables | Status |
 |---|---|---|
-| **M1 — Skeleton & Docker** | Monorepo, shared types, React shell, Node server, Dockerfile/Compose, health endpoint | Two LAN browsers load app and connect via WS |
-| **M2 — Profiles & presence** | Nickname, bundled avatar gallery, upload processing/storage, live lobby | Two players see updated profiles and statuses |
-| **M3 — Challenges & matchmaking** | Invitations, accept/decline/cancel/timeout, race-safe reservations | One invitation starts exactly one match |
-| **M4 — Game engine & rendering** | Canvas, input protocol, server physics, scoring, snapshots | Two devices complete first-to-five match |
-| **M5 — Lifecycle & recovery** | Results, rematch, leave, heartbeat, pause/reconnect/forfeit | Reconnect and abandonment scenarios pass |
-| **M6 — Validation & delivery** | Tests, multi-match validation, docs, offline LAN test, polish | All §13 acceptance criteria pass |
-
-**Recommended build order:** Implement a vertical slice (two clients connect → challenge → play) before polishing avatars and recovery. Preserve the full agreed MVP scope, but prioritize the riskiest multiplayer path early.
+| **M1 — Skeleton & Docker** | Shared types, React shell, Express + `ws` server, `app.Dockerfile`/`compose.yaml`, `/healthz` | Complete |
+| **M2 — Profiles & presence** | Unique nicknames, bundled SVG gallery, WebP upload pipeline, live lobby + filters | Complete |
+| **M3 — Challenges & matchmaking** | Invitations, accept/decline/cancel/30s expiry, race-safe reservations | Complete |
+| **M4 — Game engine & rendering** | 16:10 Canvas, snapshot interpolation, 60 Hz physics, scoring, Web Audio FX | Complete |
+| **M5 — Lifecycle & recovery** | Results, side-swap rematch, confirm-leave, heartbeat, 10s pause/reconnect/forfeit | Complete |
+| **M6 — Validation & LAN polish** | Unit & integration tests, host LAN IP discovery, offline QR share, v1.01 docs | Complete |
 
 ## 15. Key risks and mitigations
 
 | Risk | Mitigation |
 |---|---|
-| Conference Wi-Fi isolates devices | Test early; use a dedicated LAN/hotspot if needed |
+| Conference Wi-Fi isolates devices | Document AP/hotspot workaround in README and Share modal |
 | Browser refresh breaks a match | Recovery token, 10-second grace, full resync |
 | Conflicting invitations cause duplicate matches | Central atomic reservation/state transition |
-| Uploads create security/storage problems | Re-encode images, size caps, opaque IDs, rate limits, volume cleanup |
-| Simulation jitter | Fixed timestep, bounded catch-up, interpolation |
-| Docker works locally but not from other devices | Bind to `0.0.0.0`, publish port, test host firewall |
-| Scope grows during coding | Enforce §5 exclusions and §13 definition of done |
+| Uploads create security/storage problems | Re-encode to 256×256 WebP, 1 MiB cap, opaque IDs, rate limits, per-session pruning |
+| Simulation jitter | Fixed 60 Hz timestep, bounded catch-up, client snapshot interpolation |
+| Docker Share URL shows internal bridge IP | Prioritize `PUBLIC_URL` & non-loopback `Host` header, filter `172.16–31.x.x` in container, inline IP input |
+| Project archive drops extensionless `Dockerfile` | Provide `app.Dockerfile` referenced by `compose.yaml` alongside `Dockerfile` |
+| Duplicate player names confuse lobby/matches | Case-insensitive unique nickname enforcement in `SessionManager` & `WsGateway` |
 
-## 16. Open implementation choices (nonblocking)
+## 16. Resolved implementation choices
 
-The following may be selected during implementation without changing the agreed scope:
-- Exact UI design, avatar artwork, sound effects (optional, locally bundled).
-- Fastify versus an equivalently small HTTP framework.
-- Exact normalized arena dimensions and physics tuning.
-- Whether to show an optional QR code for the LAN URL.
-- Whether rematches automatically swap sides.
-
-Any change to the seven MVP features, Docker deployment, desktop-only support, or both avatar methods requires an explicit scope revision.
+The following nonblocking choices from v1.0 were resolved in v1.01:
+- **HTTP/WS Stack:** Express + `ws` on Node.js 22 (`--experimental-strip-types`), serving Vite middleware in dev and compiled `dist/` in production.
+- **Arena & Audio:** `16:10` normalized playfield with synthesized Web Audio API sound effects (mute toggle included).
+- **LAN Discovery:** Offline QR code generation via `qrcode` inside the **Share LAN URL** dialog with smart container IP filtering.
+- **Rematch Behavior:** Mutual rematch automatically swaps paddle sides (`left` ↔ `right`) in a new match ID.
 
 ## 17. Final project statement
 
-**Build a Docker-hosted, LAN-only, browser-native Pong arena in which desktop players create profiles with gallery or uploaded avatars, discover one another in a live lobby, exchange challenges, play server-authoritative real-time Pong, complete/rematch games, and recover safely from network disconnections.** Deliver the source, container configuration, tests, and instructions required to run and demonstrate the application on a local network.
+**Build a Docker-hosted, LAN-only, browser-native Pong arena in which desktop players create profiles with unique nicknames and gallery or uploaded avatars, discover one another in a live lobby, exchange challenges, play server-authoritative real-time Pong, complete/rematch games, and recover safely from network disconnections.** Deliver the source, container configuration, tests, and instructions required to run and demonstrate the application on a local network.
