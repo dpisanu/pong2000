@@ -35,6 +35,8 @@ export interface EngineRules {
   leftPaddleHeight?: number;
   rightPaddleHeight?: number;
   paddleSpeed?: number;
+  leftPaddleSpeed?: number;
+  rightPaddleSpeed?: number;
   ballInitialSpeed?: number;
   ballSpeedIncrement?: number;
   ballMaxSpeed?: number;
@@ -77,6 +79,16 @@ export function resetBallForServe(
   state.ballVy = Math.sin(angle) * ballInitialSpeed;
 }
 
+export function computeDemoPaddleInput(
+  state: PhysicsState,
+  demoSide: PaddleSide,
+): PaddleInputDir {
+  const paddleY = demoSide === 'left' ? state.leftY : state.rightY;
+  const diff = state.ballY - paddleY;
+  if (Math.abs(diff) <= 0.012) return 0;
+  return diff < 0 ? -1 : 1;
+}
+
 export function stepPaddlesOnly(
   state: PhysicsState,
   inputs: { left: PaddleInputDir; right: PaddleInputDir },
@@ -85,15 +97,17 @@ export function stepPaddlesOnly(
 ): void {
   const leftHeight = rules?.leftPaddleHeight ?? PADDLE_HEIGHT;
   const rightHeight = rules?.rightPaddleHeight ?? PADDLE_HEIGHT;
-  const paddleSpeed = rules?.paddleSpeed ?? PADDLE_SPEED;
+  const baseSpeed = rules?.paddleSpeed ?? PADDLE_SPEED;
+  const leftSpeed = rules?.leftPaddleSpeed ?? baseSpeed;
+  const rightSpeed = rules?.rightPaddleSpeed ?? baseSpeed;
 
   const minLeftY = leftHeight / 2;
   const maxLeftY = 1 - leftHeight / 2;
   const minRightY = rightHeight / 2;
   const maxRightY = 1 - rightHeight / 2;
 
-  state.leftY = clamp(state.leftY + inputs.left * paddleSpeed * dtSec, minLeftY, maxLeftY);
-  state.rightY = clamp(state.rightY + inputs.right * paddleSpeed * dtSec, minRightY, maxRightY);
+  state.leftY = clamp(state.leftY + inputs.left * leftSpeed * dtSec, minLeftY, maxLeftY);
+  state.rightY = clamp(state.rightY + inputs.right * rightSpeed * dtSec, minRightY, maxRightY);
 }
 
 export function stepMatchPhysics(

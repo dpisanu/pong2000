@@ -21,10 +21,12 @@ import type {
 } from '../../../shared/src/types.ts';
 import { ServerConfigService } from '../config/serverConfig.ts';
 import {
+  computeDemoPaddleInput,
   createInitialPhysics,
   resetBallForServe,
   stepMatchPhysics,
   stepPaddlesOnly,
+  type EngineRules,
   type PaddleInputDir,
   type PhysicsState,
 } from '../engine/pongEngine.ts';
@@ -298,6 +300,19 @@ export class MatchManager {
     const elapsedMs = Math.max(0, nowPerf - match.lastStepPerfMs);
     match.lastStepPerfMs = nowPerf;
 
+    const engineRules: EngineRules = {
+      leftPaddleHeight: match.rules.leftPaddleHeight,
+      rightPaddleHeight: match.rules.rightPaddleHeight,
+      paddleSpeed: match.rules.paddleSpeed,
+      leftPaddleSpeed:
+        match.rules.demoSide === 'left' ? match.rules.demoPaddleSpeed : match.rules.paddleSpeed,
+      rightPaddleSpeed:
+        match.rules.demoSide === 'right' ? match.rules.demoPaddleSpeed : match.rules.paddleSpeed,
+      ballInitialSpeed: match.rules.ballInitialSpeed,
+      ballSpeedIncrement: match.rules.ballSpeedIncrement,
+      ballMaxSpeed: match.rules.ballMaxSpeed,
+    };
+
     if (match.phase === 'COUNTDOWN') {
       if (match.countdownEndPerfMs !== null) {
         const remainingMs = match.countdownEndPerfMs - nowPerf;
@@ -330,7 +345,7 @@ export class MatchManager {
             match.accumulatorMs -= SIMULATION_DT_MS;
             match.tick += 1;
             stepped = true;
-            stepPaddlesOnly(match.physics, match.inputs, SIMULATION_DT_SEC, match.rules);
+            stepPaddlesOnly(match.physics, match.inputs, SIMULATION_DT_SEC, engineRules);
           }
 
           if (stepped) {
@@ -354,13 +369,31 @@ export class MatchManager {
       SIMULATION_DT_MS * MAX_CATCHUP_STEPS,
     );
 
+    const demoSide = match.rules.demoSide;
+    const demoSideHeight = demoSide
+      ? demoSide === 'left'
+        ? match.rules.leftPaddleHeight
+        : match.rules.rightPaddleHeight
+      : 1.0;
+    const demoAutoActive =
+      match.rules.isDemoMatch &&
+      demoSide !== null &&
+      match.rules.demoAutoMove &&
+      demoSideHeight < 1.0;
+
     let stepped = false;
     while (match.accumulatorMs >= SIMULATION_DT_MS && match.phase === 'PLAYING') {
       match.accumulatorMs -= SIMULATION_DT_MS;
       match.tick += 1;
       stepped = true;
 
-      const result = stepMatchPhysics(match.physics, match.inputs, SIMULATION_DT_SEC, match.rules);
+      if (demoAutoActive && demoSide) {
+        match.inputs[demoSide] = computeDemoPaddleInput(match.physics, demoSide);
+      } else if (demoSide) {
+        match.inputs[demoSide] = 0;
+      }
+
+      const result = stepMatchPhysics(match.physics, match.inputs, SIMULATION_DT_SEC, engineRules);
       if (result.scoredSide) {
         if (result.scoredSide === 'left') {
           match.score.left += 1;
@@ -383,6 +416,7 @@ export class MatchManager {
         match.countdownEndPerfMs = performance.now() + match.rules.pointCountdownMs;
         match.countdownPaddlesUnlocked = false;
         match.accumulatorMs = 0;
+        if (demoSide) match.inputs[demoSide] = 0;
         this.callbacks.onMatchPhase(match, this.getParticipants(match));
         this.callbacks.onMatchSnapshot(match, this.toSnapshot(match));
         return;

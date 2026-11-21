@@ -4,6 +4,9 @@ import {
   BALL_MAX_SPEED,
   BALL_SPEED_INCREMENT,
   CHALLENGE_EXPIRY_MS,
+  DEMO_AUTO_MOVE,
+  DEMO_PADDLE_HEIGHT,
+  DEMO_PADDLE_SPEED,
   DISCONNECT_GRACE_MS,
   INITIAL_COUNTDOWN_MS,
   PADDLE_HEIGHT,
@@ -33,6 +36,9 @@ export function buildDefaultArenaConfig(initialHostIp = ''): ArenaConfig {
     resumeCountdownMs: RESUME_COUNTDOWN_MS,
     challengeExpiryMs: CHALLENGE_EXPIRY_MS,
     disconnectGraceMs: DISCONNECT_GRACE_MS,
+    demoPaddleHeight: DEMO_PADDLE_HEIGHT,
+    demoAutoMove: DEMO_AUTO_MOVE,
+    demoPaddleSpeed: DEMO_PADDLE_SPEED,
     hostIp: initialHostIp,
   };
 }
@@ -62,10 +68,13 @@ export class ServerConfigService {
 
   buildMatchRules(demoSide: PaddleSide | null): MatchRulesConfig {
     const isDemoMatch = demoSide !== null;
+    const demoAutoMove =
+      isDemoMatch && this.config.demoPaddleHeight < 1.0 && this.config.demoAutoMove;
     return {
       paddleHeight: this.config.paddleHeight,
-      leftPaddleHeight: demoSide === 'left' ? 1.0 : this.config.paddleHeight,
-      rightPaddleHeight: demoSide === 'right' ? 1.0 : this.config.paddleHeight,
+      leftPaddleHeight: demoSide === 'left' ? this.config.demoPaddleHeight : this.config.paddleHeight,
+      rightPaddleHeight:
+        demoSide === 'right' ? this.config.demoPaddleHeight : this.config.paddleHeight,
       paddleSpeed: this.config.paddleSpeed,
       ballInitialSpeed: this.config.ballInitialSpeed,
       ballSpeedIncrement: this.config.ballSpeedIncrement,
@@ -76,16 +85,27 @@ export class ServerConfigService {
       resumeCountdownMs: this.config.resumeCountdownMs,
       isDemoMatch,
       demoSide,
+      demoAutoMove,
+      demoPaddleSpeed: this.config.demoPaddleSpeed,
     };
   }
 
   updateConfig(
     raw: unknown,
   ): { ok: true; config: ArenaConfig } | { ok: false; error: string } {
-    const merged =
-      typeof raw === 'object' && raw !== null
-        ? { ...this.config, ...(raw as Record<string, unknown>) }
-        : raw;
+    let merged: unknown = raw;
+    if (typeof raw === 'object' && raw !== null) {
+      const incoming = raw as Record<string, unknown>;
+      const combined: Record<string, unknown> = { ...this.config, ...incoming };
+      if (
+        typeof combined.demoPaddleHeight === 'number' &&
+        combined.demoPaddleHeight >= 1.0 &&
+        incoming.demoAutoMove === undefined
+      ) {
+        combined.demoAutoMove = false;
+      }
+      merged = combined;
+    }
 
     const parsed = ArenaConfigSchema.safeParse(merged);
     if (!parsed.success) {

@@ -63,4 +63,6 @@ export const DEFAULT_AVATAR_URL = '/avatars/default.svg';
 
 export const DEMO_PLAYER_ID = 'bot_demo_player';
 export const DEMO_PLAYER_NICKNAME = 'Demo Player';
-
+export const DEMO_PADDLE_HEIGHT = 1.0;
+export const DEMO_AUTO_MOVE = false;
+export const DEMO_PADDLE_SPEED = 0.72;

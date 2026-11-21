@@ -453,12 +453,23 @@ export function MatchView({
           <span>
             First to {winScore} {winScore === 1 ? 'point' : 'points'}
           </span>
-          {rules?.isDemoMatch && (
-            <>
-              <span aria-hidden="true">·</span>
-              <span className="text-slate-300">Demo mode (full-height opponent paddle)</span>
-            </>
-          )}
+          {rules?.isDemoMatch && (() => {
+            const demoHeight =
+              rules.demoSide === 'left' ? rules.leftPaddleHeight : rules.rightPaddleHeight;
+            const demoPct = Math.round(demoHeight * 100);
+            const demoDesc =
+              demoHeight >= 1.0
+                ? 'Demo mode (100% full-height paddle)'
+                : `Demo mode (${demoPct}% paddle · ${
+                    rules.demoAutoMove ? `Auto-move ${rules.demoPaddleSpeed}` : 'Stationary'
+                  })`;
+            return (
+              <>
+                <span aria-hidden="true">·</span>
+                <span className="text-slate-300">{demoDesc}</span>
+              </>
+            );
+          })()}
           {pingMs !== null && (
             <>
               <span aria-hidden="true">·</span>

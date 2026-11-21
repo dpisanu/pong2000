@@ -123,6 +123,9 @@ export interface ArenaConfig {
   resumeCountdownMs: number;
   challengeExpiryMs: number;
   disconnectGraceMs: number;
+  demoPaddleHeight: number;
+  demoAutoMove: boolean;
+  demoPaddleSpeed: number;
   hostIp: string;
 }
 
@@ -142,6 +145,8 @@ export interface MatchRulesConfig {
   resumeCountdownMs: number;
   isDemoMatch: boolean;
   demoSide: PaddleSide | null;
+  demoAutoMove: boolean;
+  demoPaddleSpeed: number;
 }
 
 export interface ActiveMatchSync {

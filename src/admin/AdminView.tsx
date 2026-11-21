@@ -38,6 +38,9 @@ interface FormValues {
   resumeCountdownMs: string;
   challengeExpiryMs: string;
   disconnectGraceMs: string;
+  demoPaddleHeight: string;
+  demoAutoMove: boolean;
+  demoPaddleSpeed: string;
 }
 
 function toFormValues(cfg: ArenaConfig): FormValues {
@@ -54,6 +57,9 @@ function toFormValues(cfg: ArenaConfig): FormValues {
     resumeCountdownMs: String(cfg.resumeCountdownMs),
     challengeExpiryMs: String(cfg.challengeExpiryMs),
     disconnectGraceMs: String(cfg.disconnectGraceMs),
+    demoPaddleHeight: String(cfg.demoPaddleHeight),
+    demoAutoMove: cfg.demoPaddleHeight < 1.0 && cfg.demoAutoMove,
+    demoPaddleSpeed: String(cfg.demoPaddleSpeed),
   };
 }
 
@@ -205,6 +211,9 @@ export function AdminView({ onBackToArena, onConfigSaved }: AdminViewProps) {
     if (!adminToken || !form) return;
     setSaveFeedback(null);
 
+    const demoPaddleHeightNum = Number(form.demoPaddleHeight);
+    const demoAutoMoveAllowed = Number.isFinite(demoPaddleHeightNum) && demoPaddleHeightNum < 1.0;
+
     const payload = {
       hostIp: form.hostIp.trim(),
       paddleHeight: Number(form.paddleHeight),
@@ -218,10 +227,13 @@ export function AdminView({ onBackToArena, onConfigSaved }: AdminViewProps) {
       resumeCountdownMs: Math.round(Number(form.resumeCountdownMs)),
       challengeExpiryMs: Math.round(Number(form.challengeExpiryMs)),
       disconnectGraceMs: Math.round(Number(form.disconnectGraceMs)),
+      demoPaddleHeight: demoPaddleHeightNum,
+      demoAutoMove: demoAutoMoveAllowed ? form.demoAutoMove : false,
+      demoPaddleSpeed: Number(form.demoPaddleSpeed),
     };
 
     for (const [key, val] of Object.entries(payload)) {
-      if (key !== 'hostIp' && !Number.isFinite(val)) {
+      if (key !== 'hostIp' && key !== 'demoAutoMove' && !Number.isFinite(val)) {
         setSaveFeedback({ level: 'err', text: `Invalid numeric value for ${key}.` });
         return;
       }
@@ -293,9 +305,27 @@ export function AdminView({ onBackToArena, onConfigSaved }: AdminViewProps) {
     }
   };
 
-  const updateField = (key: keyof FormValues, value: string) => {
-    setForm((prev) => (prev ? { ...prev, [key]: value } : prev));
+  const updateField = (key: Exclude<keyof FormValues, 'demoAutoMove'>, value: string) => {
+    setForm((prev) => {
+      if (!prev) return prev;
+      if (key === 'demoPaddleHeight') {
+        const parsed = Number(value);
+        const isFullHeight = Number.isFinite(parsed) && parsed >= 1.0;
+        return {
+          ...prev,
+          demoPaddleHeight: value,
+          demoAutoMove: isFullHeight ? false : prev.demoAutoMove,
+        };
+      }
+      return { ...prev, [key]: value };
+    });
   };
+
+  const demoHeightVal = form ? Number(form.demoPaddleHeight) : 1.0;
+  const demoIsFullHeight = !Number.isFinite(demoHeightVal) || demoHeightVal >= 1.0;
+  const demoPercent = Number.isFinite(demoHeightVal)
+    ? Math.max(0, Math.min(100, Math.round(demoHeightVal * 100)))
+    : 100;
 
   return (
     <main className="max-w-5xl mx-auto px-6 py-8">
@@ -731,6 +761,103 @@ export function AdminView({ onBackToArena, onConfigSaved }: AdminViewProps) {
                   value={form.resumeCountdownMs}
                   onChange={(e) => updateField('resumeCountdownMs', e.target.value)}
                   className="w-full px-3 py-2 text-sm font-mono-tabular text-slate-100 bg-[#0d131a] border border-white/15 rounded-lg focus:outline-none focus:border-emerald-500"
+                  required
+                />
+              </div>
+            </div>
+          </section>
+
+          {/* Demo User Configuration */}
+          <section className="bg-[#151e29] border border-white/10 rounded-xl p-6">
+            <h2 className="font-display text-xl font-bold text-slate-100">Demo User</h2>
+            <p className="mt-1 text-xs text-slate-400">
+              Configure the virtual Demo Player practice opponent. Auto movement is available only
+              when paddle length is less than <span className="font-mono-tabular">100%</span> (
+              <span className="font-mono-tabular">1.0</span>).
+            </p>
+
+            <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 items-start">
+              <div>
+                <div className="flex items-center justify-between gap-2 mb-1.5">
+                  <label
+                    htmlFor="cfg-demo-paddle-height"
+                    className="block text-xs font-medium text-slate-300"
+                  >
+                    Demo Paddle Length (0.08 – 1.00)
+                  </label>
+                  <span className="text-xs font-mono-tabular text-slate-400">{demoPercent}%</span>
+                </div>
+                <input
+                  id="cfg-demo-paddle-height"
+                  type="number"
+                  step="0.01"
+                  min="0.08"
+                  max="1.0"
+                  value={form.demoPaddleHeight}
+                  onChange={(e) => updateField('demoPaddleHeight', e.target.value)}
+                  className="w-full px-3 py-2 text-sm font-mono-tabular text-slate-100 bg-[#0d131a] border border-white/15 rounded-lg focus:outline-none focus:border-emerald-500"
+                  required
+                />
+              </div>
+
+              <div>
+                <span className="block text-xs font-medium text-slate-300 mb-1.5">
+                  Auto Movement
+                </span>
+                <div className="flex items-center gap-1 p-1 bg-[#0d131a] border border-white/15 rounded-lg">
+                  <button
+                    type="button"
+                    disabled={demoIsFullHeight}
+                    onClick={() =>
+                      setForm((prev) => (prev ? { ...prev, demoAutoMove: true } : prev))
+                    }
+                    className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
+                      !demoIsFullHeight && form.demoAutoMove
+                        ? 'bg-emerald-500 text-slate-950 font-semibold'
+                        : 'text-slate-300 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed'
+                    }`}
+                  >
+                    On
+                  </button>
+                  <button
+                    type="button"
+                    disabled={demoIsFullHeight}
+                    onClick={() =>
+                      setForm((prev) => (prev ? { ...prev, demoAutoMove: false } : prev))
+                    }
+                    className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
+                      demoIsFullHeight || !form.demoAutoMove
+                        ? 'bg-[#1e2a38] text-slate-100'
+                        : 'text-slate-400 hover:text-slate-200 disabled:opacity-40'
+                    }`}
+                  >
+                    Off
+                  </button>
+                </div>
+                {demoIsFullHeight && (
+                  <p className="mt-1.5 text-xs text-slate-400">
+                    Disabled while paddle length is 100%.
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label
+                  htmlFor="cfg-demo-paddle-speed"
+                  className="block text-xs font-medium text-slate-300 mb-1.5"
+                >
+                  Auto Movement Speed (0.20 – 2.50)
+                </label>
+                <input
+                  id="cfg-demo-paddle-speed"
+                  type="number"
+                  step="0.02"
+                  min="0.2"
+                  max="2.5"
+                  disabled={demoIsFullHeight || !form.demoAutoMove}
+                  value={form.demoPaddleSpeed}
+                  onChange={(e) => updateField('demoPaddleSpeed', e.target.value)}
+                  className="w-full px-3 py-2 text-sm font-mono-tabular text-slate-100 bg-[#0d131a] border border-white/15 rounded-lg focus:outline-none focus:border-emerald-500 disabled:opacity-45 disabled:cursor-not-allowed"
                   required
                 />
               </div>

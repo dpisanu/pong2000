@@ -112,6 +112,9 @@ export const ArenaConfigSchema = z
     resumeCountdownMs: z.number().int().min(500).max(5_000),
     challengeExpiryMs: z.number().int().min(5_000).max(120_000),
     disconnectGraceMs: z.number().int().min(3_000).max(60_000),
+    demoPaddleHeight: z.number().min(0.08).max(1.0),
+    demoAutoMove: z.boolean(),
+    demoPaddleSpeed: z.number().min(0.2).max(2.5),
     hostIp: z.string().max(128),
   })
   .superRefine((val, ctx) => {
@@ -120,6 +123,13 @@ export const ArenaConfigSchema = z
         code: z.ZodIssueCode.custom,
         path: ['ballMaxSpeed'],
         message: 'Max ball speed must be greater than or equal to initial ball speed.',
+      });
+    }
+    if (val.demoPaddleHeight >= 1.0 && val.demoAutoMove) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['demoAutoMove'],
+        message: 'Auto movement can only be enabled when Demo User paddle length is below 100%.',
       });
     }
     const hostCheck = validateHostIpInput(val.hostIp);

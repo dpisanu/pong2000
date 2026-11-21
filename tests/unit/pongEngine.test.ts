@@ -8,6 +8,7 @@ import {
   SIMULATION_DT_SEC,
 } from '../../shared/src/constants.ts';
 import {
+  computeDemoPaddleInput,
   createInitialPhysics,
   stepMatchPhysics,
   stepPaddlesOnly,
@@ -124,5 +125,29 @@ describe('pongEngine physics', () => {
     expect(bottomHit.scoredSide).toBeNull();
     expect(state.ballVx).toBeLessThan(0);
     expect(state.ballVy).toBeGreaterThan(0);
+  });
+
+  it('computes Demo auto-movement input toward ballY and applies per-side paddle speed', () => {
+    const state = createInitialPhysics('right');
+    state.rightY = 0.5;
+    state.ballY = 0.25;
+    expect(computeDemoPaddleInput(state, 'right')).toBe(-1);
+
+    state.ballY = 0.8;
+    expect(computeDemoPaddleInput(state, 'right')).toBe(1);
+
+    state.ballY = 0.505;
+    expect(computeDemoPaddleInput(state, 'right')).toBe(0);
+
+    const beforeLeft = state.leftY;
+    const beforeRight = state.rightY;
+    stepPaddlesOnly(
+      state,
+      { left: 1, right: 1 },
+      0.2,
+      { leftPaddleSpeed: 0.5, rightPaddleSpeed: 1.5, rightPaddleHeight: 0.25 },
+    );
+    expect(state.leftY - beforeLeft).toBeCloseTo(0.1, 4);
+    expect(state.rightY - beforeRight).toBeCloseTo(0.3, 4);
   });
 });

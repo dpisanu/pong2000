@@ -169,7 +169,13 @@ export function LobbyView({
                                 ·
                               </span>
                               <span className="text-slate-400">
-                                Demo mode · Full-height paddle · Auto-accepts
+                                {arenaConfig.demoPaddleHeight >= 1.0
+                                  ? 'Demo mode · 100% full-height paddle · Auto-accepts'
+                                  : `Demo mode · ${Math.round(arenaConfig.demoPaddleHeight * 100)}% paddle · ${
+                                      arenaConfig.demoAutoMove
+                                        ? `Auto-move (${arenaConfig.demoPaddleSpeed})`
+                                        : 'Stationary'
+                                    } · Auto-accepts`}
                               </span>
                             </>
                           )}

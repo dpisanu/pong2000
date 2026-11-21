@@ -5,6 +5,9 @@ import {
   BALL_MAX_SPEED,
   BALL_SPEED_INCREMENT,
   CHALLENGE_EXPIRY_MS,
+  DEMO_AUTO_MOVE,
+  DEMO_PADDLE_HEIGHT,
+  DEMO_PADDLE_SPEED,
   DISCONNECT_GRACE_MS,
   INITIAL_COUNTDOWN_MS,
   PADDLE_HEIGHT,
@@ -51,6 +54,9 @@ const DEFAULT_PUBLIC_CONFIG: PublicArenaConfig = {
   resumeCountdownMs: RESUME_COUNTDOWN_MS,
   challengeExpiryMs: CHALLENGE_EXPIRY_MS,
   disconnectGraceMs: DISCONNECT_GRACE_MS,
+  demoPaddleHeight: DEMO_PADDLE_HEIGHT,
+  demoAutoMove: DEMO_AUTO_MOVE,
+  demoPaddleSpeed: DEMO_PADDLE_SPEED,
 };
 
 type AppRoute = '/' | '/leaderboard' | '/admin';

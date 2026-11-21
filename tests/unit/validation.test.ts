@@ -145,7 +145,29 @@ describe('ServerConfigService & ArenaConfigSchema', () => {
     expect(demoRules.isDemoMatch).toBe(true);
     expect(demoRules.leftPaddleHeight).toBe(0.25);
     expect(demoRules.rightPaddleHeight).toBe(1.0);
+    expect(demoRules.demoAutoMove).toBe(false);
     expect(demoRules.winScore).toBe(7);
+
+    // Rejects auto-movement when Demo paddle length is 100% (1.0)
+    const invalidDemo = svc.updateConfig({ demoPaddleHeight: 1.0, demoAutoMove: true });
+    expect(invalidDemo.ok).toBe(false);
+
+    // Accepts auto-movement + custom speed when Demo paddle length < 100%
+    const validDemo = svc.updateConfig({
+      demoPaddleHeight: 0.3,
+      demoAutoMove: true,
+      demoPaddleSpeed: 1.15,
+    });
+    expect(validDemo.ok).toBe(true);
+    const activeDemoRules = svc.buildMatchRules('right');
+    expect(activeDemoRules.rightPaddleHeight).toBe(0.3);
+    expect(activeDemoRules.demoAutoMove).toBe(true);
+    expect(activeDemoRules.demoPaddleSpeed).toBe(1.15);
+
+    // Returning Demo paddle length to 1.0 automatically disables demoAutoMove
+    const backToFull = svc.updateConfig({ demoPaddleHeight: 1.0 });
+    expect(backToFull.ok).toBe(true);
+    expect(svc.getConfig().demoAutoMove).toBe(false);
 
     const reset = svc.resetConfig();
     expect(reset.hostIp).toBe('192.168.1.50');

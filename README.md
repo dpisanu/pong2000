@@ -66,6 +66,7 @@ Visit `/admin` (or click **Admin** in the top navigation bar) to configure runti
 - **Host IP / URL:** Explicitly set the LAN IPv4 address or URL shown in **Share LAN URL** (recommended when running inside Docker on bridge networking).
 - **Gameplay Physics & Rules:** Tune paddle length (`0.08–0.45`), paddle speed (`0.30–2.50`), ball initial/increment/max speeds, and points to win (`1–21`).
 - **Timeouts:** Adjust challenge expiry, disconnect grace period, and initial/after-point/reconnect countdown durations.
+- **Demo User:** Configure Demo Player's paddle length (`0.08–1.00`), toggle auto-movement on/off (available only when paddle length is below `100%`), and set auto-movement speed (`0.20–2.50`).
 
 Set `ADMIN_PASSCODE` in `.env` to lock `/admin` with a predefined passcode, or leave it unset to claim a one-time passcode on your first visit to `/admin`.
 
