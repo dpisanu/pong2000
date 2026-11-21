@@ -1,0 +1,25 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-display: "Bahnschrift", "DIN Alternate", "Avenir Next Condensed", "Arial Narrow", "Segoe UI", system-ui, sans-serif;
+    --font-sans: "Avenir Next", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+    --font-mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", "Consolas", monospace;
+  }
+
+  html,
+  body {
+    font-family: var(--font-sans);
+    background-color: #0d131a;
+    color: #f1f5f9;
+  }
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+.font-mono-tabular {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}

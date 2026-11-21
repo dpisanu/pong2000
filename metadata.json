@@ -1,0 +1,6 @@
+{
+  "name": "LAN Pong Arena",
+  "description": "Self-hosted browser-native two-player Pong arena for local area networks with live lobby, challenges, authoritative 60 Hz physics, and custom avatars.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
