@@ -9,6 +9,7 @@ import type { ServerEvent } from '../../shared/src/protocol.ts';
 import { AvatarService } from '../../server/src/avatars/avatarService.ts';
 import { AdminAuthService, ServerConfigService } from '../../server/src/config/serverConfig.ts';
 import { createApp } from '../../server/src/http/createApp.ts';
+import { LeaderboardService } from '../../server/src/leaderboard/leaderboardService.ts';
 import { SessionManager } from '../../server/src/sessions/sessionManager.ts';
 import { WsGateway } from '../../server/src/ws/wsGateway.ts';
 
@@ -34,6 +35,7 @@ async function createTestServer(opts?: {
   const sessions = new SessionManager();
   const configService = new ServerConfigService();
   const adminAuth = new AdminAuthService();
+  const leaderboard = new LeaderboardService();
   let gateway: WsGateway | null = null;
   const app = createApp({
     avatarService,
@@ -42,6 +44,7 @@ async function createTestServer(opts?: {
     port: 0,
     configService,
     adminAuth,
+    leaderboard,
     onConfigUpdated: () => gateway?.applyRuntimeConfigUpdate(),
   });
 
@@ -51,6 +54,7 @@ async function createTestServer(opts?: {
     sessions,
     avatarService,
     configService,
+    leaderboard,
     challengeExpiryMs: opts?.challengeExpiryMs ?? 30_000,
     disconnectGraceMs: opts?.disconnectGraceMs ?? 10_000,
     heartbeatIntervalMs: 60_000,
@@ -494,5 +498,78 @@ describe('WebSocket protocol & multiplayer integration', () => {
     expect(info.lanUrls[0]).toContain('192.168.50.99');
 
     clientConn.client.ws.close();
+  });
+
+  it('tracks runtime leaderboard stats including Demo Player, forfeits, longest match, and ping', async () => {
+    const srv = await createTestServer();
+    cleanups.push(srv.close);
+    const baseUrl = `http://127.0.0.1:${srv.port}`;
+
+    const p1 = await connectClient(srv.port, 'RankHero');
+
+    // Report client-measured ping RTT on ping frame
+    p1.client.send({
+      type: 'ping',
+      requestId: 'ping-lb-1',
+      payload: { clientTime: Date.now(), lastPingMs: 24 },
+    });
+    await p1.client.waitFor('pong', (ev) => ev.requestId === 'ping-lb-1');
+
+    // Start Demo match and forfeit via match.leave
+    p1.client.send({
+      type: 'challenge.create',
+      requestId: 'lb-demo-ch',
+      payload: { targetPlayerId: DEMO_PLAYER_ID },
+    });
+    const started = await p1.client.waitFor('match.started');
+
+    await new Promise((r) => setTimeout(r, 35));
+    p1.client.send({
+      type: 'match.leave',
+      requestId: 'lb-demo-leave',
+      payload: { matchId: started.payload.matchId },
+    });
+    const lbEvent = await p1.client.waitFor(
+      'leaderboard.updated',
+      (ev) => ev.payload.entries.some((e) => e.playerId === DEMO_PLAYER_ID && e.wins === 1),
+    );
+    expect(lbEvent.payload.entries[0].playerId).toBe(DEMO_PLAYER_ID);
+
+    const res = await fetch(`${baseUrl}/api/leaderboard`);
+    expect(res.status).toBe(200);
+    const data = (await res.json()) as {
+      entries: Array<{
+        playerId: string;
+        matchesPlayed: number;
+        wins: number;
+        losses: number;
+        forfeits: number;
+        longestMatchMs: number;
+        pingMs: number | null;
+      }>;
+    };
+
+    const demoRow = data.entries.find((e) => e.playerId === DEMO_PLAYER_ID);
+    const heroRow = data.entries.find((e) => e.playerId === p1.ready.payload.playerId);
+
+    expect(demoRow).toMatchObject({
+      matchesPlayed: 1,
+      wins: 1,
+      losses: 0,
+      forfeits: 0,
+      pingMs: 0,
+    });
+    expect(demoRow!.longestMatchMs).toBeGreaterThan(0);
+
+    expect(heroRow).toMatchObject({
+      matchesPlayed: 1,
+      wins: 0,
+      losses: 1,
+      forfeits: 1,
+      pingMs: 24,
+    });
+    expect(heroRow!.longestMatchMs).toBeGreaterThan(0);
+
+    p1.client.ws.close();
   });
 });

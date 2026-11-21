@@ -17,9 +17,10 @@ import {
   resolveAvatarUrl,
   sanitizeNickname,
 } from '../../../shared/src/validation.ts';
-import type { AvatarService } from '../avatars/avatarService.ts';
+import { AvatarService } from '../avatars/avatarService.ts';
 import { ChallengeError, ChallengeManager } from '../challenges/challengeManager.ts';
 import { ServerConfigService } from '../config/serverConfig.ts';
+import { LeaderboardService } from '../leaderboard/leaderboardService.ts';
 import { MatchError, MatchManager } from '../matches/matchManager.ts';
 import { SessionManager, type PlayerSession } from '../sessions/sessionManager.ts';
 
@@ -29,6 +30,7 @@ interface SocketState {
   playerId: string | null;
   isAlive: boolean;
   lastPongAt: number;
+  lastWsPingSentPerfMs: number | null;
   commandTimestamps: number[];
   inputTimestamps: number[];
   recentRequestIds: string[];
@@ -39,6 +41,7 @@ export interface WsGatewayOptions {
   sessions: SessionManager;
   avatarService: AvatarService;
   configService?: ServerConfigService;
+  leaderboard?: LeaderboardService;
   allowedOrigins?: string[];
   challengeExpiryMs?: number;
   disconnectGraceMs?: number;
@@ -77,6 +80,7 @@ export class WsGateway {
   readonly challenges: ChallengeManager;
   readonly matches: MatchManager;
   readonly configService: ServerConfigService;
+  readonly leaderboard: LeaderboardService;
   private readonly avatarService: AvatarService;
   private readonly socketsById = new Map<string, SocketState>();
   private readonly socketsByPlayerId = new Map<string, SocketState>();
@@ -89,6 +93,7 @@ export class WsGateway {
     this.sessions = options.sessions;
     this.avatarService = options.avatarService;
     this.configService = options.configService ?? new ServerConfigService();
+    this.leaderboard = options.leaderboard ?? new LeaderboardService();
     this.allowedOrigins = options.allowedOrigins ?? [];
     this.heartbeatTimeoutMs = options.heartbeatTimeoutMs ?? HEARTBEAT_TIMEOUT_MS;
     const initialCfg = this.configService.getConfig();
@@ -183,7 +188,17 @@ export class WsGateway {
           this.sendToPlayer(match.leftPlayerId, event);
           this.sendToPlayer(match.rightPlayerId, event);
         },
-        onMatchFinished: (match, winner, winnerSide, reason) => {
+        onMatchFinished: (match, winner, winnerSide, reason, durationMs) => {
+          const loserId =
+            winner.playerId === match.leftPlayerId ? match.rightPlayerId : match.leftPlayerId;
+          this.leaderboard.recordMatchResult({
+            winnerId: winner.playerId,
+            loserId,
+            durationMs,
+            reason,
+          });
+          this.broadcastLeaderboard();
+
           const event: ServerEvent = {
             type: 'match.finished',
             protocolVersion: PROTOCOL_VERSION,
@@ -263,6 +278,7 @@ export class WsGateway {
           continue;
         }
         state.isAlive = false;
+        state.lastWsPingSentPerfMs = performance.now();
         try {
           state.ws.ping();
         } catch {
@@ -280,6 +296,7 @@ export class WsGateway {
       playerId: null,
       isAlive: true,
       lastPongAt: Date.now(),
+      lastWsPingSentPerfMs: null,
       commandTimestamps: [],
       inputTimestamps: [],
       recentRequestIds: [],
@@ -289,6 +306,15 @@ export class WsGateway {
     ws.on('pong', () => {
       state.isAlive = true;
       state.lastPongAt = Date.now();
+      if (state.lastWsPingSentPerfMs !== null && state.playerId) {
+        const measured = Math.max(0, Math.round(performance.now() - state.lastWsPingSentPerfMs));
+        state.lastWsPingSentPerfMs = null;
+        const session = this.sessions.getById(state.playerId);
+        if (session && session.pingMs === null) {
+          session.pingMs = measured;
+          this.leaderboard.updatePing(session.playerId, measured);
+        }
+      }
     });
 
     ws.on('message', (data, isBinary) => {
@@ -379,6 +405,14 @@ export class WsGateway {
     }
 
     if (cmd.type === 'ping') {
+      if (state.playerId && typeof cmd.payload.lastPingMs === 'number') {
+        const roundedPing = Math.max(0, Math.round(cmd.payload.lastPingMs));
+        const sess = this.sessions.getById(state.playerId);
+        if (sess) {
+          sess.pingMs = roundedPing;
+        }
+        this.leaderboard.updatePing(state.playerId, roundedPing);
+      }
       this.send(state.ws, {
         type: 'pong',
         protocolVersion: PROTOCOL_VERSION,
@@ -445,8 +479,10 @@ export class WsGateway {
           session.nickname = nick.value;
           session.avatarId = avatar.avatarId;
           session.avatarUrl = avatar.avatarUrl;
+          this.leaderboard.upsertPlayer(session);
           this.sendAck(state.ws, cmd.requestId, cmd.type);
           this.broadcastLobbyUpsert(session);
+          this.broadcastLeaderboard();
           break;
         }
         case 'challenge.create': {
@@ -608,6 +644,7 @@ export class WsGateway {
 
     state.playerId = session.playerId;
     this.socketsByPlayerId.set(session.playerId, state);
+    this.leaderboard.upsertPlayer(session);
 
     if (recovered && session.activeMatchId) {
       this.matches.handlePlayerReconnect(session.playerId);
@@ -616,6 +653,7 @@ export class WsGateway {
     this.sendAck(state.ws, cmd.requestId, cmd.type);
     this.sendSessionReady(state.ws, session, recovered);
     this.broadcastLobbyUpsert(session, session.playerId);
+    this.broadcastLeaderboard();
   }
 
   private sendSessionReady(ws: WebSocket, session: PlayerSession, recovered: boolean): void {
@@ -660,10 +698,12 @@ export class WsGateway {
     const session = this.sessions.markDisconnected(playerId);
     if (!session) return;
 
+    this.leaderboard.markDisconnected(playerId);
     // Promptly cancel any pending challenge on disconnect
     this.challenges.invalidateForPlayer(playerId, 'Player disconnected');
 
     this.broadcastLobbyUpsert(session);
+    this.broadcastLeaderboard();
 
     if (session.activeMatchId) {
       this.matches.handlePlayerDisconnect(playerId);
@@ -755,6 +795,18 @@ export class WsGateway {
       protocolVersion: PROTOCOL_VERSION,
       serverTime: Date.now(),
       payload: { level, message },
+    };
+    for (const sock of this.socketsByPlayerId.values()) {
+      this.send(sock.ws, event);
+    }
+  }
+
+  broadcastLeaderboard(): void {
+    const event: ServerEvent = {
+      type: 'leaderboard.updated',
+      protocolVersion: PROTOCOL_VERSION,
+      serverTime: Date.now(),
+      payload: { entries: this.leaderboard.getEntries() },
     };
     for (const sock of this.socketsByPlayerId.values()) {
       this.send(sock.ws, event);

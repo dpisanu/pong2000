@@ -55,6 +55,10 @@ npm start        # Runs production server via Node.js (requires npm run build fi
 - **Win Condition & Timeouts:** Default first to 5 points wins, 30s challenge expiry, and 10s disconnect grace (all configurable at runtime in `/admin`).
 - **Live Server Ping:** Real-time WebSocket round-trip latency (`ms`) appears in the Top Bar and Match HUD to spot network lag immediately.
 
+## Leaderboard (`/leaderboard`)
+
+Visit `/leaderboard` (or click **Leaderboard** in the top navigation bar, or query `GET /api/leaderboard`) to view live runtime rankings since the server started, including **Demo Player**. Top three players display Gold, Silver, and Bronze trophy icons alongside total matches played, won, lost, forfeited, longest match duration, and live ping / lag status.
+
 ## Admin Console (`/admin`)
 
 Visit `/admin` (or click **Admin** in the top navigation bar) to configure runtime server settings without restarting the container:

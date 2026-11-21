@@ -5,6 +5,7 @@ import express from 'express';
 import { AvatarService } from './server/src/avatars/avatarService.ts';
 import { AdminAuthService, ServerConfigService } from './server/src/config/serverConfig.ts';
 import { createApp, getLanUrls } from './server/src/http/createApp.ts';
+import { LeaderboardService } from './server/src/leaderboard/leaderboardService.ts';
 import { SessionManager } from './server/src/sessions/sessionManager.ts';
 import { WsGateway } from './server/src/ws/wsGateway.ts';
 
@@ -24,6 +25,7 @@ async function main(): Promise<void> {
 
   const configService = new ServerConfigService(publicUrl ?? '');
   const adminAuth = new AdminAuthService(process.env.ADMIN_PASSCODE);
+  const leaderboard = new LeaderboardService();
   const sessions = new SessionManager();
   let gateway: WsGateway | null = null;
 
@@ -40,6 +42,7 @@ async function main(): Promise<void> {
     publicUrl,
     configService,
     adminAuth,
+    leaderboard,
     onConfigUpdated: () => {
       gateway?.applyRuntimeConfigUpdate();
     },
@@ -52,6 +55,7 @@ async function main(): Promise<void> {
     sessions,
     avatarService,
     configService,
+    leaderboard,
     allowedOrigins,
   });
 

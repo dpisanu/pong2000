@@ -154,3 +154,17 @@ export interface ActiveMatchSync {
   winnerPlayerId?: string | null;
   outcomeReason?: MatchOutcomeReason | null;
 }
+
+export interface LeaderboardEntry {
+  playerId: string;
+  nickname: string;
+  avatarUrl: string;
+  isBot: boolean;
+  connected: boolean;
+  matchesPlayed: number;
+  wins: number;
+  losses: number;
+  forfeits: number;
+  longestMatchMs: number;
+  pingMs: number | null;
+}

@@ -4,6 +4,7 @@ import express, { type Express, type Request, type Response } from 'express';
 import { MAX_AVATAR_BYTES } from '../../../shared/src/constants.ts';
 import { AvatarUploadError, type AvatarService } from '../avatars/avatarService.ts';
 import { AdminAuthService, ServerConfigService } from '../config/serverConfig.ts';
+import { LeaderboardService } from '../leaderboard/leaderboardService.ts';
 import type { MatchManager } from '../matches/matchManager.ts';
 import type { SessionManager } from '../sessions/sessionManager.ts';
 import { isOriginAllowed } from '../ws/wsGateway.ts';
@@ -16,6 +17,7 @@ export interface CreateAppOptions {
   publicUrl?: string;
   configService?: ServerConfigService;
   adminAuth?: AdminAuthService;
+  leaderboard?: LeaderboardService;
   onConfigUpdated?: () => void;
   allowedOrigins?: string[];
   startedAt?: number;
@@ -123,6 +125,7 @@ export function createApp(options: CreateAppOptions): Express {
   const allowedOrigins = options.allowedOrigins ?? [];
   const configService = options.configService ?? new ServerConfigService(options.publicUrl ?? '');
   const adminAuth = options.adminAuth ?? new AdminAuthService(process.env.ADMIN_PASSCODE);
+  const leaderboard = options.leaderboard ?? new LeaderboardService();
 
   app.disable('x-powered-by');
 
@@ -168,6 +171,13 @@ export function createApp(options: CreateAppOptions): Express {
 
   app.get('/api/config', (_req: Request, res: Response) => {
     res.json(configService.getPublicConfig());
+  });
+
+  app.get('/api/leaderboard', (_req: Request, res: Response) => {
+    res.json({
+      entries: leaderboard.getEntries(),
+      updatedAt: Date.now(),
+    });
   });
 
   // Admin status & authentication endpoints

@@ -55,6 +55,8 @@ export interface MatchRecord {
   returnedToLobby: Set<string>;
   loopTimer: ReturnType<typeof setInterval> | null;
   lastStepPerfMs: number;
+  createdPerfMs: number;
+  resultRecorded: boolean;
   accumulatorMs: number;
   snapshotTickCounter: number;
 }
@@ -75,6 +77,7 @@ export interface MatchCallbacks {
     winner: PlayerSession,
     winnerSide: PaddleSide,
     reason: MatchOutcomeReason,
+    durationMs: number,
   ) => void;
   onMatchRematchUpdated: (match: MatchRecord, state: MatchRematchState) => void;
   onPlayerReturnedToLobby: (player: PlayerSession) => void;
@@ -261,6 +264,8 @@ export class MatchManager {
       returnedToLobby: new Set(),
       loopTimer: null,
       lastStepPerfMs: nowPerf,
+      createdPerfMs: nowPerf,
+      resultRecorded: false,
       accumulatorMs: 0,
       snapshotTickCounter: 0,
     };
@@ -673,11 +678,13 @@ export class MatchManager {
     match.winnerPlayerId = winnerId;
     match.outcomeReason = reason;
 
+    const durationMs = Math.max(1, Math.round(performance.now() - match.createdPerfMs));
     const winner = this.sessions.getById(winnerId);
-    if (winner) {
+    if (winner && !match.resultRecorded) {
+      match.resultRecorded = true;
       this.callbacks.onMatchPhase(match, this.getParticipants(match));
       this.callbacks.onMatchSnapshot(match, this.toSnapshot(match));
-      this.callbacks.onMatchFinished(match, winner, winnerSide, reason);
+      this.callbacks.onMatchFinished(match, winner, winnerSide, reason, durationMs);
     }
   }
 
@@ -697,11 +704,13 @@ export class MatchManager {
     match.winnerPlayerId = winnerId;
     match.outcomeReason = reason;
 
+    const durationMs = Math.max(1, Math.round(performance.now() - match.createdPerfMs));
     const winner = this.sessions.getById(winnerId);
-    if (winner) {
+    if (winner && !match.resultRecorded) {
+      match.resultRecorded = true;
       this.callbacks.onMatchPhase(match, this.getParticipants(match));
       this.callbacks.onMatchSnapshot(match, this.toSnapshot(match));
-      this.callbacks.onMatchFinished(match, winner, winnerSide, reason);
+      this.callbacks.onMatchFinished(match, winner, winnerSide, reason, durationMs);
     }
   }
 

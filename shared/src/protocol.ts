@@ -3,6 +3,7 @@ import type {
   ActiveMatchSync,
   ChallengeInfo,
   ErrorCode,
+  LeaderboardEntry,
   LobbyPlayer,
   MatchOutcomeReason,
   MatchParticipant,
@@ -104,6 +105,7 @@ export const ClientCommandSchema = z.discriminatedUnion('type', [
     requestId: RequestIdSchema,
     payload: z.object({
       clientTime: z.number(),
+      lastPingMs: z.number().min(0).max(60_000).optional(),
     }),
   }),
 ]);
@@ -269,5 +271,13 @@ export type ServerEvent =
       serverTime: number;
       payload: {
         config: PublicArenaConfig;
+      };
+    }
+  | {
+      type: 'leaderboard.updated';
+      protocolVersion: number;
+      serverTime: number;
+      payload: {
+        entries: LeaderboardEntry[];
       };
     };

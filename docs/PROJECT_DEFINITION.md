@@ -1,6 +1,6 @@
 # LAN Pong Arena — Project Definition
 
-**Version:** 1.10  
+**Version:** 1.20  
 **Status:** Implemented MVP+ specification  
 **Date:** 2026-11-21  
 **Deployment:** Docker on a LAN host  
@@ -161,8 +161,8 @@ Desktop Browser A                  Desktop Browser B
 
 ```text
 lan-pong-arena/
-  src/{admin,audio,components,game,lobby,network,profile,storage}/
-  server/src/{avatars,challenges,config,engine,http,matches,sessions,ws}/
+  src/{admin,audio,components,game,leaderboard,lobby,network,profile,storage}/
+  server/src/{avatars,challenges,config,engine,http,leaderboard,matches,sessions,ws}/
   shared/src/{constants,protocol,types,validation}/
   public/avatars/
   tests/{unit,integration}/
@@ -181,10 +181,11 @@ lan-pong-arena/
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/` & `/admin` | Serve browser app (lobby/arena and operator admin console SPA routes) |
+| GET | `/`, `/leaderboard`, `/admin` | Serve browser app (lobby/arena, runtime leaderboard, and operator admin console SPA routes) |
 | GET | `/healthz` | Readiness/health status (`status`, `uptimeSeconds`, `activePlayers`, `activeMatches`) |
 | GET | `/api/server-info` | Return prioritized host LAN URLs, port, and container detection metadata |
 | GET | `/api/config` | Return current public gameplay rules (excludes admin-only `hostIp` setting) |
+| GET | `/api/leaderboard` | Return runtime player standings (including `Demo Player`) with played, won, lost, forfeited, longest match, and ping stats |
 | GET | `/api/admin/status` | Check whether first-run passcode setup is needed and verify Bearer session |
 | POST | `/api/admin/setup` | One-time first-run passcode creation when `ADMIN_PASSCODE` is unset (returns Bearer token) |
 | POST | `/api/admin/login` | Rate-limited passcode authentication returning in-memory admin Bearer token |
@@ -256,6 +257,7 @@ Coordinates are normalized to the logical playfield (`0–1`); paddle Y coordina
 |---|---|
 | `session.ready` | Player ID, fresh recovery token, memory-only upload token, `arenaConfig`, full lobby/match resync state |
 | `config.updated` | Broadcast updated `PublicArenaConfig` whenever an admin saves or resets settings |
+| `leaderboard.updated` | Broadcast updated runtime `LeaderboardEntry[]` standings on match completion, joins, or disconnects |
 | `pong` | Echo `clientTime` and `requestId` so clients measure live WebSocket round-trip ping (`ms`) |
 | `lobby.snapshot` | Initial authoritative roster (includes `Demo Player`) |
 | `lobby.player.upsert` / `lobby.player.remove` | Incremental presence changes |
@@ -401,14 +403,15 @@ Performance values are design targets to verify on real hardware, not guaranteed
 - [x] **A17 Validation:** Invalid commands, malformed messages, unauthorized match input, and invalid uploads do not crash the server.
 - [x] **A18 Admin Configuration (`/admin`):** Operators authenticate via `ADMIN_PASSCODE` or first-run passcode setup and configure paddle length, paddle speed, ball velocities, game rounds, timeouts, and Host IP; changes take effect for new matches and broadcast to connected clients.
 - [x] **A19 Demo Mode & Ping Readout:** Players can challenge `Demo Player` from the lobby to enter an immediate practice match against a full-height (`1.0`) opponent paddle, and can inspect their live server round-trip ping latency (`ms`) in both the Top Bar and Match HUD.
+- [x] **A20 Runtime Leaderboard (`/leaderboard` & `GET /api/leaderboard`):** Displays ranked players for the current server runtime (including `Demo Player`), showing Gold/Silver/Bronze trophy icons before the top 3 players' names along with total matches played, won, lost, forfeited, longest match duration, and live ping/lag status.
 
 ### Engineering definition of done
 - [x] Clean Docker build (`app.Dockerfile`) and Compose startup (`compose.yaml`) from README instructions.
-- [x] Unit tests cover wall/paddle collision, anti-tunneling, full-height Demo paddle rebounds, score, `stepPaddlesOnly` & `MatchManager` countdown paddle head-start timing, nickname/avatar validation, `ServerConfigService` & `AdminAuthService`, WebP sanitization, and LAN URL filtering (`tests/unit/`).
-- [x] Integration tests cover challenge race, expiry, disconnect timeout, reconnect recovery, match isolation, unique nickname enforcement, `ping`/`pong`, Demo Player auto-accept matches, and `/api/admin/*` endpoints (`tests/integration/`).
+- [x] Unit tests cover wall/paddle collision, anti-tunneling, full-height Demo paddle rebounds, score, `stepPaddlesOnly` & `MatchManager` countdown paddle head-start timing, nickname/avatar validation, `ServerConfigService` & `AdminAuthService`, `LeaderboardService`, WebP sanitization, and LAN URL filtering (`tests/unit/`).
+- [x] Integration tests cover challenge race, expiry, disconnect timeout, reconnect recovery, match isolation, unique nickname enforcement, `ping`/`pong`, Demo Player auto-accept matches, `/api/admin/*`, and `/api/leaderboard` (`tests/integration/`).
 - [x] Verified on Docker Compose LAN host (`/healthz`, container build, multi-client play).
 - [x] No runtime dependency on external APIs, hosted assets, or cloud services.
-- [x] README includes configuration, startup, `/admin` usage, Demo Mode, sharing LAN URL, offline `docker save`/`load`, licensing (MIT `LICENSE`), and troubleshooting.
+- [x] README includes configuration, startup, `/leaderboard` & `/admin` usage, Demo Mode, sharing LAN URL, offline `docker save`/`load`, licensing (MIT `LICENSE`), and troubleshooting.
 
 ## 14. Implementation milestones
 

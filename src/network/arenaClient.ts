@@ -19,6 +19,7 @@ export class ArenaClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private pendingPings = new Map<string, number>();
+  private lastPingMs: number | null = null;
   private manuallyClosed = false;
   private requestCounter = 0;
   private readonly handlers: ArenaClientHandlers;
@@ -83,6 +84,7 @@ export class ArenaClient {
       this.pingTimer = null;
     }
     this.pendingPings.clear();
+    this.lastPingMs = null;
   }
 
   private sendPing(): void {
@@ -99,7 +101,10 @@ export class ArenaClient {
     this.send({
       type: 'ping',
       requestId,
-      payload: { clientTime: Date.now() },
+      payload: {
+        clientTime: Date.now(),
+        ...(this.lastPingMs !== null ? { lastPingMs: this.lastPingMs } : {}),
+      },
     });
   }
 
@@ -138,6 +143,7 @@ export class ArenaClient {
           if (sentPerf !== undefined) {
             this.pendingPings.delete(parsed.requestId);
             const rttMs = Math.max(0, Math.round(performance.now() - sentPerf));
+            this.lastPingMs = rttMs;
             this.handlers.onLatency?.(rttMs);
           }
           return;

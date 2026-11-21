@@ -17,6 +17,7 @@ import type { ServerEvent } from '../shared/src/protocol.ts';
 import type {
   ActiveMatchSync,
   ChallengeInfo,
+  LeaderboardEntry,
   LobbyPlayer,
   PlayerProfile,
   PublicArenaConfig,
@@ -24,6 +25,7 @@ import type {
 import { AdminView } from './admin/AdminView.tsx';
 import { LanShareModal } from './components/LanShareModal.tsx';
 import { MatchView } from './game/MatchView.tsx';
+import { LeaderboardView } from './leaderboard/LeaderboardView.tsx';
 import { LobbyView } from './lobby/LobbyView.tsx';
 import {
   ArenaClient,
@@ -51,13 +53,17 @@ const DEFAULT_PUBLIC_CONFIG: PublicArenaConfig = {
   disconnectGraceMs: DISCONNECT_GRACE_MS,
 };
 
-function readRoute(): '/' | '/admin' {
+type AppRoute = '/' | '/leaderboard' | '/admin';
+
+function readRoute(): AppRoute {
   const normalized = window.location.pathname.replace(/\/+$/, '') || '/';
-  return normalized === '/admin' ? '/admin' : '/';
+  if (normalized === '/admin') return '/admin';
+  if (normalized === '/leaderboard') return '/leaderboard';
+  return '/';
 }
 
 export default function App() {
-  const [route, setRoute] = useState<'/' | '/admin'>(() => readRoute());
+  const [route, setRoute] = useState<AppRoute>(() => readRoute());
   const [savedProfile, setSavedProfile] = useState<PlayerProfile | null>(() => {
     const stored = loadStoredProfile();
     return stored ? { nickname: stored.nickname, avatarId: stored.avatarId } : null;
@@ -65,6 +71,9 @@ export default function App() {
   const [connectionState, setConnectionState] = useState<ConnectionState>('DISCONNECTED');
   const [pingMs, setPingMs] = useState<number | null>(null);
   const [arenaConfig, setArenaConfig] = useState<PublicArenaConfig>(DEFAULT_PUBLIC_CONFIG);
+  const [leaderboardEntries, setLeaderboardEntries] = useState<LeaderboardEntry[]>([]);
+  const [leaderboardLoading, setLeaderboardLoading] = useState(false);
+  const [leaderboardError, setLeaderboardError] = useState<string | null>(null);
   const [selfPlayerId, setSelfPlayerId] = useState<string | null>(null);
   const [uploadToken, setUploadToken] = useState<string | null>(null);
   const [lobbyPlayers, setLobbyPlayers] = useState<LobbyPlayer[]>([]);
@@ -97,7 +106,7 @@ export default function App() {
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
 
-  const navigateTo = useCallback((nextRoute: '/' | '/admin') => {
+  const navigateTo = useCallback((nextRoute: AppRoute) => {
     if (window.location.pathname !== nextRoute) {
       window.history.pushState({}, '', nextRoute);
     }
@@ -113,9 +122,37 @@ export default function App() {
       .catch(() => {});
   }, []);
 
+  const refreshLeaderboard = useCallback(() => {
+    setLeaderboardLoading(true);
+    setLeaderboardError(null);
+    fetch('/api/leaderboard')
+      .then((res) => {
+        if (!res.ok) throw new Error('Failed to load leaderboard standings.');
+        return res.json() as Promise<{ entries: LeaderboardEntry[] }>;
+      })
+      .then((data) => {
+        if (Array.isArray(data.entries)) {
+          setLeaderboardEntries(data.entries);
+        }
+      })
+      .catch((err) => {
+        setLeaderboardError(err instanceof Error ? err.message : 'Unable to reach leaderboard.');
+      })
+      .finally(() => {
+        setLeaderboardLoading(false);
+      });
+  }, []);
+
   useEffect(() => {
     refreshPublicConfig();
   }, [refreshPublicConfig]);
+
+  useEffect(() => {
+    if (route !== '/leaderboard') return;
+    refreshLeaderboard();
+    const timer = setInterval(refreshLeaderboard, 5000);
+    return () => clearInterval(timer);
+  }, [route, refreshLeaderboard]);
 
   const showBanner = useCallback((level: 'error' | 'info', message: string) => {
     setBanner({ level, message });
@@ -183,6 +220,10 @@ export default function App() {
         }
         case 'config.updated': {
           setArenaConfig(event.payload.config);
+          break;
+        }
+        case 'leaderboard.updated': {
+          setLeaderboardEntries(event.payload.entries);
           break;
         }
         case 'lobby.snapshot': {
@@ -433,8 +474,8 @@ export default function App() {
     setActiveMatch(null);
   }, []);
 
-  // Show onboarding screen until player configures a unique nickname & avatar (unless visiting /admin directly)
-  if (route !== '/admin' && !savedProfile) {
+  // Show onboarding screen until player configures a unique nickname & avatar (unless visiting /admin or /leaderboard directly)
+  if (route === '/' && !savedProfile) {
     const stored = loadStoredProfile();
     return (
       <ProfileSetupView
@@ -516,15 +557,35 @@ export default function App() {
             )}
 
             {!activeMatch && (
-              <button
-                type="button"
-                onClick={() => navigateTo(route === '/admin' ? '/' : '/admin')}
-                className={`hover:text-white transition-colors whitespace-nowrap shrink-0 ${
-                  route === '/admin' ? 'text-emerald-400' : ''
-                }`}
-              >
-                {route === '/admin' ? 'Lobby' : 'Admin'}
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => navigateTo('/')}
+                  className={`hover:text-white transition-colors whitespace-nowrap shrink-0 ${
+                    route === '/' ? 'text-emerald-400' : ''
+                  }`}
+                >
+                  Lobby
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigateTo('/leaderboard')}
+                  className={`hover:text-white transition-colors whitespace-nowrap shrink-0 ${
+                    route === '/leaderboard' ? 'text-emerald-400' : ''
+                  }`}
+                >
+                  Leaderboard
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigateTo('/admin')}
+                  className={`hover:text-white transition-colors whitespace-nowrap shrink-0 ${
+                    route === '/admin' ? 'text-emerald-400' : ''
+                  }`}
+                >
+                  Admin
+                </button>
+              </>
             )}
           </nav>
 
@@ -576,12 +637,21 @@ export default function App() {
         </div>
       )}
 
-      {/* Main Content: Admin Console, Match Arena, or Live Lobby */}
+      {/* Main Content: Admin Console, Leaderboard, Match Arena, or Live Lobby */}
       <div className="flex-1">
         {route === '/admin' ? (
           <AdminView
             onBackToArena={() => navigateTo('/')}
             onConfigSaved={refreshPublicConfig}
+          />
+        ) : route === '/leaderboard' ? (
+          <LeaderboardView
+            entries={leaderboardEntries}
+            selfPlayerId={selfPlayerId}
+            loading={leaderboardLoading}
+            error={leaderboardError}
+            onRefresh={refreshLeaderboard}
+            onBackToLobby={() => navigateTo('/')}
           />
         ) : activeMatch && selfPlayerId ? (
           <MatchView

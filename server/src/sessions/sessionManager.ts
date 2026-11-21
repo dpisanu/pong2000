@@ -20,6 +20,7 @@ export interface PlayerSession {
   socketId: string | null;
   disconnectExpiryTimer: ReturnType<typeof setTimeout> | null;
   createdAt: number;
+  pingMs: number | null;
   isBot?: boolean;
 }
 
@@ -45,6 +46,7 @@ export class SessionManager {
         socketId: null,
         disconnectExpiryTimer: null,
         createdAt: Date.now(),
+        pingMs: 0,
         isBot: true,
       });
     }
@@ -83,6 +85,7 @@ export class SessionManager {
       socketId: params.socketId,
       disconnectExpiryTimer: null,
       createdAt: Date.now(),
+      pingMs: null,
     };
 
     this.sessions.set(playerId, session);
@@ -182,6 +185,7 @@ export class SessionManager {
     }
     session.connected = false;
     session.socketId = null;
+    session.pingMs = null;
     session.status = 'DISCONNECTED';
     return session;
   }
