@@ -192,7 +192,10 @@ describe('WebSocket protocol & multiplayer integration', () => {
       requestId: 'ch-3',
       payload: { targetPlayerId: c.ready.payload.playerId },
     });
-    const cIncoming = await c.client.waitFor('challenge.received');
+    const cIncoming = await c.client.waitFor(
+      'challenge.received',
+      (ev) => ev.payload.challenge.fromPlayerId === b.ready.payload.playerId,
+    );
     expect(cIncoming.payload.challenge.fromPlayerId).toBe(b.ready.payload.playerId);
 
     a.client.ws.close();

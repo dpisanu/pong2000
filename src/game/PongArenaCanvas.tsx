@@ -1,9 +1,10 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type RefObject } from 'react';
 import {
   ARENA_ASPECT,
   BALL_RADIUS_Y,
   PADDLE_HEIGHT,
   PADDLE_MARGIN_X,
+  PADDLE_SPEED,
   PADDLE_WIDTH,
 } from '../../shared/src/constants.ts';
 import type { MatchSnapshot, PaddleSide } from '../../shared/src/types.ts';
@@ -11,6 +12,7 @@ import type { MatchSnapshot, PaddleSide } from '../../shared/src/types.ts';
 interface PongArenaCanvasProps {
   snapshot: MatchSnapshot;
   yourSide: PaddleSide;
+  localDirectionRef: RefObject<-1 | 0 | 1>;
 }
 
 interface SnapshotSample {
@@ -22,7 +24,15 @@ function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
 }
 
-export function PongArenaCanvas({ snapshot, yourSide }: PongArenaCanvasProps) {
+function clamp(val: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, val));
+}
+
+export function PongArenaCanvas({
+  snapshot,
+  yourSide,
+  localDirectionRef,
+}: PongArenaCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const samplesRef = useRef<{ prev: SnapshotSample | null; curr: SnapshotSample | null }>({
     prev: null,
@@ -30,6 +40,7 @@ export function PongArenaCanvas({ snapshot, yourSide }: PongArenaCanvasProps) {
   });
   const trailRef = useRef<Array<{ x: number; y: number }>>([]);
   const yourSideRef = useRef<PaddleSide>(yourSide);
+  const predictedSelfYRef = useRef<number | null>(null);
 
   useEffect(() => {
     yourSideRef.current = yourSide;
@@ -45,15 +56,16 @@ export function PongArenaCanvas({ snapshot, yourSide }: PongArenaCanvasProps) {
         curr: { snapshot, receivedPerfMs: nowPerf },
       };
       trailRef.current = [];
+      predictedSelfYRef.current =
+        yourSideRef.current === 'left' ? snapshot.paddles.leftY : snapshot.paddles.rightY;
       return;
     }
 
-    // If ball was reset to center (e.g. countdown after score), clear trail and snap
-    if (
-      curr.snapshot.phase !== 'PLAYING' &&
-      snapshot.phase === 'COUNTDOWN'
-    ) {
+    // If entering a new countdown (start of match, after a point, or resume), clear trail and snap
+    if (curr.snapshot.phase !== 'COUNTDOWN' && snapshot.phase === 'COUNTDOWN') {
       trailRef.current = [];
+      predictedSelfYRef.current =
+        yourSideRef.current === 'left' ? snapshot.paddles.leftY : snapshot.paddles.rightY;
     }
 
     if (snapshot.tick > curr.snapshot.tick || snapshot.phase !== curr.snapshot.phase) {
@@ -61,6 +73,20 @@ export function PongArenaCanvas({ snapshot, yourSide }: PongArenaCanvasProps) {
         prev: curr,
         curr: { snapshot, receivedPerfMs: nowPerf },
       };
+
+      const paddlesUnlocked = snapshot.phase === 'PLAYING' || Boolean(snapshot.paddlesUnlocked);
+      const authSelfY =
+        yourSideRef.current === 'left' ? snapshot.paddles.leftY : snapshot.paddles.rightY;
+      if (predictedSelfYRef.current === null || !paddlesUnlocked) {
+        predictedSelfYRef.current = authSelfY;
+      } else {
+        const diff = Math.abs(authSelfY - predictedSelfYRef.current);
+        if (diff > 0.08) {
+          predictedSelfYRef.current = authSelfY;
+        } else {
+          predictedSelfYRef.current = lerp(predictedSelfYRef.current, authSelfY, 0.35);
+        }
+      }
     }
   }, [snapshot]);
 
@@ -71,8 +97,12 @@ export function PongArenaCanvas({ snapshot, yourSide }: PongArenaCanvasProps) {
     if (!ctx) return;
 
     let rafId = 0;
+    let lastFramePerf = performance.now();
 
-    const renderFrame = () => {
+    const renderFrame = (frameNowPerf: number) => {
+      const dtSec = Math.min(0.05, Math.max(0, (frameNowPerf - lastFramePerf) / 1000));
+      lastFramePerf = frameNowPerf;
+
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       const rect = canvas.getBoundingClientRect();
       const targetW = Math.max(320, Math.round(rect.width * dpr));
@@ -85,7 +115,6 @@ export function PongArenaCanvas({ snapshot, yourSide }: PongArenaCanvasProps) {
 
       const w = canvas.width;
       const h = canvas.height;
-      const nowPerf = performance.now();
       const { prev, curr } = samplesRef.current;
 
       let ballX = 0.5;
@@ -93,25 +122,33 @@ export function PongArenaCanvas({ snapshot, yourSide }: PongArenaCanvasProps) {
       let leftY = 0.5;
       let rightY = 0.5;
       let isPlaying = false;
+      let paddlesActive = false;
 
       if (curr) {
         isPlaying = curr.snapshot.phase === 'PLAYING';
-        if (prev && isPlaying && curr.snapshot.tick > prev.snapshot.tick) {
+        paddlesActive = isPlaying || Boolean(curr.snapshot.paddlesUnlocked);
+
+        if (prev && paddlesActive && curr.snapshot.tick > prev.snapshot.tick) {
           const intervalMs = Math.max(16, Math.min(80, curr.receivedPerfMs - prev.receivedPerfMs));
-          const elapsed = nowPerf - curr.receivedPerfMs;
+          const elapsed = frameNowPerf - curr.receivedPerfMs;
           // Interpolate smoothly from prev toward curr, allowing tiny bounded extrapolation (up to 25%)
           const alpha = Math.max(0, Math.min(1.25, elapsed / intervalMs));
 
-          const jumpDist = Math.hypot(
-            curr.snapshot.ball.x - prev.snapshot.ball.x,
-            curr.snapshot.ball.y - prev.snapshot.ball.y,
-          );
-          if (jumpDist > 0.35) {
+          if (isPlaying) {
+            const jumpDist = Math.hypot(
+              curr.snapshot.ball.x - prev.snapshot.ball.x,
+              curr.snapshot.ball.y - prev.snapshot.ball.y,
+            );
+            if (jumpDist > 0.35) {
+              ballX = curr.snapshot.ball.x;
+              ballY = curr.snapshot.ball.y;
+            } else {
+              ballX = lerp(prev.snapshot.ball.x, curr.snapshot.ball.x, alpha);
+              ballY = lerp(prev.snapshot.ball.y, curr.snapshot.ball.y, alpha);
+            }
+          } else {
             ballX = curr.snapshot.ball.x;
             ballY = curr.snapshot.ball.y;
-          } else {
-            ballX = lerp(prev.snapshot.ball.x, curr.snapshot.ball.x, alpha);
-            ballY = lerp(prev.snapshot.ball.y, curr.snapshot.ball.y, alpha);
           }
 
           leftY = lerp(prev.snapshot.paddles.leftY, curr.snapshot.paddles.leftY, Math.min(1, alpha));
@@ -121,6 +158,25 @@ export function PongArenaCanvas({ snapshot, yourSide }: PongArenaCanvasProps) {
           ballY = curr.snapshot.ball.y;
           leftY = curr.snapshot.paddles.leftY;
           rightY = curr.snapshot.paddles.rightY;
+        }
+
+        // Visual-only client-side prediction for own paddle so key presses feel instant
+        if (paddlesActive) {
+          const minY = PADDLE_HEIGHT / 2;
+          const maxY = 1 - PADDLE_HEIGHT / 2;
+          const baseSelfY =
+            predictedSelfYRef.current ??
+            (yourSideRef.current === 'left'
+              ? curr.snapshot.paddles.leftY
+              : curr.snapshot.paddles.rightY);
+          const dir = localDirectionRef.current ?? 0;
+          const nextSelfY = clamp(baseSelfY + dir * PADDLE_SPEED * dtSec, minY, maxY);
+          predictedSelfYRef.current = nextSelfY;
+          if (yourSideRef.current === 'left') {
+            leftY = nextSelfY;
+          } else {
+            rightY = nextSelfY;
+          }
         }
       }
 

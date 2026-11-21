@@ -61,16 +61,24 @@ export function resetBallForServe(state: PhysicsState, serveToward: PaddleSide):
   state.ballVy = Math.sin(angle) * BALL_INITIAL_SPEED;
 }
 
-export function stepMatchPhysics(
+export function stepPaddlesOnly(
   state: PhysicsState,
   inputs: { left: PaddleInputDir; right: PaddleInputDir },
   dtSec: number,
-): PhysicsStepResult {
+): void {
   const minPaddleY = PADDLE_HEIGHT / 2;
   const maxPaddleY = 1 - PADDLE_HEIGHT / 2;
 
   state.leftY = clamp(state.leftY + inputs.left * PADDLE_SPEED * dtSec, minPaddleY, maxPaddleY);
   state.rightY = clamp(state.rightY + inputs.right * PADDLE_SPEED * dtSec, minPaddleY, maxPaddleY);
+}
+
+export function stepMatchPhysics(
+  state: PhysicsState,
+  inputs: { left: PaddleInputDir; right: PaddleInputDir },
+  dtSec: number,
+): PhysicsStepResult {
+  stepPaddlesOnly(state, inputs, dtSec);
 
   const substeps = 4;
   const subDt = dtSec / substeps;

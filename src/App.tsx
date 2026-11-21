@@ -336,10 +336,29 @@ export default function App() {
     pendingProfileUpdateRef.current = { requestId, profile };
   };
 
-  const handleReturnToLobby = () => {
+  const handleSendInput = useCallback(
+    (matchId: string, direction: -1 | 0 | 1, seq: number) => {
+      clientRef.current?.sendMatchInput(matchId, direction, seq);
+    },
+    [],
+  );
+
+  const handleLeaveMatch = useCallback((matchId: string) => {
+    clientRef.current?.leaveMatch(matchId);
+  }, []);
+
+  const handleRequestRematch = useCallback((matchId: string) => {
+    clientRef.current?.requestRematch(matchId);
+  }, []);
+
+  const handleAcceptRematch = useCallback((matchId: string) => {
+    clientRef.current?.acceptRematch(matchId);
+  }, []);
+
+  const handleReturnToLobby = useCallback(() => {
     clientRef.current?.returnToLobby();
     setActiveMatch(null);
-  };
+  }, []);
 
   // Show onboarding screen until player configures a unique nickname & avatar
   if (!savedProfile) {
@@ -453,12 +472,10 @@ export default function App() {
           <MatchView
             match={activeMatch}
             selfPlayerId={selfPlayerId}
-            onSendInput={(matchId, direction, seq) =>
-              clientRef.current?.sendMatchInput(matchId, direction, seq)
-            }
-            onLeaveMatch={(matchId) => clientRef.current?.leaveMatch(matchId)}
-            onRequestRematch={(matchId) => clientRef.current?.requestRematch(matchId)}
-            onAcceptRematch={(matchId) => clientRef.current?.acceptRematch(matchId)}
+            onSendInput={handleSendInput}
+            onLeaveMatch={handleLeaveMatch}
+            onRequestRematch={handleRequestRematch}
+            onAcceptRematch={handleAcceptRematch}
             onReturnToLobby={handleReturnToLobby}
           />
         ) : (

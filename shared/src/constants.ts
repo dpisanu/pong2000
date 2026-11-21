@@ -28,6 +28,7 @@ export const MAX_CATCHUP_STEPS = 4;
 export const INITIAL_COUNTDOWN_MS = 3000;
 export const POINT_COUNTDOWN_MS = 1500;
 export const RESUME_COUNTDOWN_MS = 2000;
+export const COUNTDOWN_PADDLE_UNLOCK_MS = 1000;
 
 export const CHALLENGE_EXPIRY_MS = 30_000;
 export const DISCONNECT_GRACE_MS = 10_000;

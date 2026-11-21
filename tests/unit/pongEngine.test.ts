@@ -10,9 +10,27 @@ import {
 import {
   createInitialPhysics,
   stepMatchPhysics,
+  stepPaddlesOnly,
 } from '../../server/src/engine/pongEngine.ts';
 
 describe('pongEngine physics', () => {
+  it('moves and clamps paddles without moving the ball in stepPaddlesOnly', () => {
+    const state = createInitialPhysics('right');
+    const initialBallX = state.ballX;
+    const initialBallY = state.ballY;
+
+    for (let i = 0; i < 30; i++) {
+      stepPaddlesOnly(state, { left: -1, right: 1 }, SIMULATION_DT_SEC);
+    }
+
+    expect(state.leftY).toBeLessThan(0.5);
+    expect(state.rightY).toBeGreaterThan(0.5);
+    expect(state.leftY).toBeGreaterThanOrEqual(PADDLE_HEIGHT / 2);
+    expect(state.rightY).toBeLessThanOrEqual(1 - PADDLE_HEIGHT / 2);
+    expect(state.ballX).toBe(initialBallX);
+    expect(state.ballY).toBe(initialBallY);
+  });
+
   it('clamps left and right paddles inside arena bounds', () => {
     const state = createInitialPhysics('right');
     for (let i = 0; i < 200; i++) {

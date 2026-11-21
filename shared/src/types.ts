@@ -96,6 +96,7 @@ export interface MatchSnapshot {
     right: number;
   };
   countdownEndsAt?: number | null;
+  paddlesUnlocked?: boolean;
   pausedReason?: string | null;
   pauseExpiresAt?: number | null;
   disconnectedPlayerId?: string | null;

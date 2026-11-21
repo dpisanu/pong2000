@@ -48,9 +48,14 @@ export function MatchView({
   const pressedUpRef = useRef(false);
   const pressedDownRef = useRef(false);
   const lastDirRef = useRef<-1 | 0 | 1>(0);
+  const onSendInputRef = useRef(onSendInput);
   const seqRef = useRef(0);
   const prevSnapshotRef = useRef<MatchSnapshot | null>(null);
   const lastCountdownSecRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    onSendInputRef.current = onSendInput;
+  }, [onSendInput]);
 
   const { snapshot, participants, yourSide, rematch } = match;
   const leftPlayer = participants[0];
@@ -143,7 +148,7 @@ export function MatchView({
       if (nextDir !== lastDirRef.current) {
         lastDirRef.current = nextDir;
         seqRef.current += 1;
-        onSendInput(match.matchId, nextDir, seqRef.current);
+        onSendInputRef.current(match.matchId, nextDir, seqRef.current);
       }
     };
 
@@ -152,6 +157,7 @@ export function MatchView({
       if (e.code === 'ArrowUp' || e.code === 'ArrowDown' || e.code === 'Space') {
         e.preventDefault();
       }
+      if (e.repeat) return;
       if (e.code === 'KeyW' || e.code === 'ArrowUp') {
         pressedUpRef.current = true;
         emitIfChanged();
@@ -189,7 +195,7 @@ export function MatchView({
       document.removeEventListener('visibilitychange', clearInputs);
       clearInputs();
     };
-  }, [isActiveMatch, match.matchId, onSendInput]);
+  }, [isActiveMatch, match.matchId]);
 
   const toggleMute = () => {
     const next = !muted;
@@ -290,18 +296,32 @@ export function MatchView({
 
       {/* Arena Canvas Container */}
       <div className="relative bg-[#0c141c] border border-white/10 rounded-xl overflow-hidden shadow-2xl">
-        <PongArenaCanvas snapshot={snapshot} yourSide={yourSide} />
+        <PongArenaCanvas
+          snapshot={snapshot}
+          yourSide={yourSide}
+          localDirectionRef={lastDirRef}
+        />
 
         {/* Countdown Overlay */}
         {snapshot.phase === 'COUNTDOWN' && countdownSeconds !== null && (
           <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center bg-black/25">
-            <div className="font-display text-7xl font-bold font-mono-tabular text-slate-100 drop-shadow-lg">
-              {countdownSeconds}
+            <div
+              className={`font-display text-7xl font-bold font-mono-tabular drop-shadow-lg ${
+                snapshot.paddlesUnlocked ? 'text-emerald-400' : 'text-slate-100'
+              }`}
+            >
+              {snapshot.paddlesUnlocked ? 1 : countdownSeconds}
             </div>
-            <div className="mt-2 text-sm font-medium text-slate-300">
-              {snapshot.score.left === 0 && snapshot.score.right === 0
-                ? 'Match starting'
-                : 'Next serve'}
+            <div
+              className={`mt-2 text-sm font-medium ${
+                snapshot.paddlesUnlocked ? 'text-emerald-300' : 'text-slate-300'
+              }`}
+            >
+              {snapshot.paddlesUnlocked
+                ? 'Paddles active — position now'
+                : snapshot.score.left === 0 && snapshot.score.right === 0
+                  ? 'Match starting'
+                  : 'Next serve'}
             </div>
           </div>
         )}

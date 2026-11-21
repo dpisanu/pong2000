@@ -68,12 +68,12 @@ LAN Pong Arena is a self-hosted, browser-native, two-player Pong application for
 
 ### F4. Pong gameplay
 - Classic 2D Pong on a `16:10` logical arena: one paddle per player, ball, walls, swept/sub-stepped collision response, scores, center serve.
-- Desktop controls: `W`/`S` and `ArrowUp`/`ArrowDown`; prevent browser scrolling (`ArrowUp`, `ArrowDown`, `Space`) while match controls are active.
+- Desktop controls: `W`/`S` and `ArrowUp`/`ArrowDown`; prevent browser scrolling (`ArrowUp`, `ArrowDown`, `Space`) while match controls are active. Keyboard listeners remain mounted stably across 30 Hz snapshots (ref-backed dispatch, `e.repeat` ignored) so initial key presses register immediately without spurious direction resets.
 - Server is authoritative for paddle positions, ball physics, collision detection, scoring, and win condition.
-- Fixed simulation timestep: 60 Hz (`4` collision substeps per tick to prevent ball tunneling). Broadcast snapshots at 30 Hz (every 2 ticks). Browser renders via `requestAnimationFrame`, interpolating between snapshots.
+- Fixed simulation timestep: 60 Hz (`4` collision substeps per tick to prevent ball tunneling). Broadcast snapshots at 30 Hz (every 2 ticks). Browser renders via `requestAnimationFrame`, interpolating between snapshots and applying visual-only client-side prediction for the player's own paddle reconciled smoothly against authoritative snapshots.
 - First to 5 points wins; show scores, avatars, side indicator, and opponent connection status in an unobtrusive top HUD.
 - Synthesized Web Audio API sound effects (paddle hits, wall bounces, countdown ticks, point chimes, match finish) with a mute/unmute toggle in the match HUD; zero external audio assets.
-- Ball serves after a short countdown (`3s` initial, `1.5s` after a point, `2s` on reconnect resume). Use deterministic bounded speeds and hit-offset bounce angles.
+- Ball serves after a short countdown (`3s` initial, `1.5s` after a point, `2s` on reconnect resume). Paddles unlock for the final `1s` of the countdown (`COUNTDOWN_PADDLE_UNLOCK_MS = 1000`, i.e., from second 2 onward in the initial 3-second countdown), indicated by an emerald `1` and **"Paddles active — position now"** overlay so players get a 1-second head start to anticipate the serve before the ball moves. Use deterministic bounded speeds and hit-offset bounce angles.
 - Client sends directional intent (`-1`, `0`, `1`) with monotonic `seq` only on state changes; clears intent on window blur/visibility loss.
 - Input is associated with the authenticated WebSocket session; clients cannot control another player's paddle.
 
@@ -170,6 +170,7 @@ lan-pong-arena/
   compose.yaml
   .dockerignore
   .env.example
+  LICENSE
   README.md
 ```
 
@@ -212,6 +213,7 @@ Example authoritative game snapshot:
     "matchId": "mt_123",
     "tick": 1452,
     "phase": "PLAYING",
+    "paddlesUnlocked": true,
     "ball": { "x": 0.52, "y": 0.31, "vx": 0.72, "vy": -0.18 },
     "paddles": { "leftY": 0.4, "rightY": 0.58 },
     "score": { "left": 2, "right": 3 }
@@ -219,7 +221,7 @@ Example authoritative game snapshot:
 }
 ```
 
-Coordinates are normalized to the logical playfield (`0–1`); paddle Y coordinates refer to their centers. Geometry and velocities are defined in shared constants; the client does not simulate authoritative physics.
+Coordinates are normalized to the logical playfield (`0–1`); paddle Y coordinates refer to their centers. `paddlesUnlocked` indicates when paddle movement is active (`true` during `PLAYING` and during the final `1s` of `COUNTDOWN`). Geometry and velocities are defined in shared constants; the client does not simulate authoritative physics.
 
 ### Client → server commands
 
@@ -314,10 +316,10 @@ Rematch creates a **new match ID** with swapped sides after both players agree, 
 - Paddle velocity is bounded and server-controlled. Clamp paddles inside the arena.
 - Ball speed and bounce angle are deterministic given current state and collision point; cap speed to preserve playability.
 - Simulation uses an accumulator/fixed delta at 60 Hz, with 4 collision substeps and a cap on catch-up steps (`4`) to avoid spiraling after host stalls.
-- A goal increments exactly one player's score, recenters the ball, and starts a new countdown.
+- A goal increments exactly one player's score, recenters the ball, and starts a new countdown. During the final `1s` (`COUNTDOWN_PADDLE_UNLOCK_MS = 1000`) of any countdown, `stepPaddlesOnly` advances and broadcasts paddle positions at 60 Hz / 30 Hz (`paddlesUnlocked: true`) while the ball stays centered until the countdown reaches zero.
 - First player to 5 points ends the match. No win-by-two requirement.
 - Server uses monotonic time (`performance.now()`) for deadlines and simulation scheduling.
-- Client interpolates between received snapshots for visual smoothness; never uses client-rendered state for scoring or collision decisions.
+- Client interpolates between received snapshots for visual smoothness and applies visual-only client paddle prediction while `PLAYING` or `paddlesUnlocked === true` (smoothly reconciled to server snapshots); never uses client-rendered state for scoring or collision decisions.
 - Define paddle side mapping once in `match.started`; left/right ownership remains stable during a match.
 
 ## 11. Reliability, security, and operational constraints
@@ -375,8 +377,8 @@ Performance values are design targets to verify on real hardware, not guaranteed
 - [x] **A06 Expiry/cancel:** Invitation cancellation and 30-second expiry return both players to a valid available state.
 - [x] **A07 Race safety:** Simultaneous conflicting challenges cannot put a player into two matches.
 - [x] **A08 Match start:** Acceptance creates exactly one match; each browser receives a different paddle assignment.
-- [x] **A09 Controls & Audio:** Each keyboard controls only its own paddle (`W/S` or `↑/↓`), browser scrolling is suppressed during active play, server clamps paddle positions, and the HUD provides an audio mute toggle plus a two-step forfeit leave confirmation.
-- [x] **A10 Consistency:** Ball, collisions, and scores agree on both devices; first to five wins.
+- [x] **A09 Controls & Audio:** Each keyboard controls only its own paddle (`W/S` or `↑/↓`) with immediate initial-press responsiveness (stable listeners across snapshots and visual-only local prediction), browser scrolling is suppressed during active play, server clamps paddle positions, and the HUD provides an audio mute toggle plus a two-step forfeit leave confirmation.
+- [x] **A10 Consistency:** Ball, collisions, and scores agree on both devices; paddles unlock for the final 1 second of pre-serve countdowns (starting at second 2 of the 3s start) before the ball serves; first to five wins.
 - [x] **A11 End/rematch:** Both see the result, can return to lobby, and can mutually start a new match (new match ID with swapped sides).
 - [x] **A12 Reconnect:** A player reconnecting within 10 seconds resumes the paused match from authoritative state with rotated tokens.
 - [x] **A13 Forfeit:** A player who does not reconnect within 10 seconds forfeits; the other player is notified and can return to lobby.
@@ -387,11 +389,11 @@ Performance values are design targets to verify on real hardware, not guaranteed
 
 ### Engineering definition of done
 - [x] Clean Docker build (`app.Dockerfile`) and Compose startup (`compose.yaml`) from README instructions.
-- [x] Unit tests cover wall/paddle collision, anti-tunneling, score, nickname/avatar validation, WebP sanitization, and LAN URL filtering (`tests/unit/`).
+- [x] Unit tests cover wall/paddle collision, anti-tunneling, score, `stepPaddlesOnly` & `MatchManager` countdown paddle head-start timing, nickname/avatar validation, WebP sanitization, and LAN URL filtering (`tests/unit/`).
 - [x] Integration tests cover challenge race, expiry, disconnect timeout, reconnect recovery, match isolation, and unique nickname enforcement (`tests/integration/`).
 - [x] Verified on Docker Compose LAN host (`/healthz`, container build, multi-client play).
 - [x] No runtime dependency on external APIs, hosted assets, or cloud services.
-- [x] README includes configuration, startup, sharing LAN URL, offline `docker save`/`load`, and troubleshooting.
+- [x] README includes configuration, startup, sharing LAN URL, offline `docker save`/`load`, licensing (MIT `LICENSE`), and troubleshooting.
 
 ## 14. Implementation milestones
 
@@ -416,14 +418,17 @@ Performance values are design targets to verify on real hardware, not guaranteed
 | Docker Share URL shows internal bridge IP | Prioritize `PUBLIC_URL` & non-loopback `Host` header, filter `172.16–31.x.x` in container, inline IP input |
 | Project archive drops extensionless `Dockerfile` | Provide `app.Dockerfile` referenced by `compose.yaml` alongside `Dockerfile` |
 | Duplicate player names confuse lobby/matches | Case-insensitive unique nickname enforcement in `SessionManager` & `WsGateway` |
+| Initial paddle key presses feel sluggish or miss | Keep keyboard listeners ref-stable across snapshots, ignore `e.repeat`, add client visual prediction, and unlock paddles 1s before serve |
 
 ## 16. Resolved implementation choices
 
 The following nonblocking choices from v1.0 were resolved in v1.01:
 - **HTTP/WS Stack:** Express + `ws` on Node.js 22 (`--experimental-strip-types`), serving Vite middleware in dev and compiled `dist/` in production.
 - **Arena & Audio:** `16:10` normalized playfield with synthesized Web Audio API sound effects (mute toggle included).
+- **Countdown & Controls:** 1-second pre-serve paddle movement head start (`COUNTDOWN_PADDLE_UNLOCK_MS = 1000`, active at second 2 of the 3s start) with visual-only local paddle prediction.
 - **LAN Discovery:** Offline QR code generation via `qrcode` inside the **Share LAN URL** dialog with smart container IP filtering.
 - **Rematch Behavior:** Mutual rematch automatically swaps paddle sides (`left` ↔ `right`) in a new match ID.
+- **Licensing:** Entire project released under the MIT License (`LICENSE`).
 
 ## 17. Final project statement
 

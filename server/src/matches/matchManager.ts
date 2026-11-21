@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
-import { performance } from 'node:perf_hooks';
 import {
+  COUNTDOWN_PADDLE_UNLOCK_MS,
   DISCONNECT_GRACE_MS,
   INITIAL_COUNTDOWN_MS,
   MAX_CATCHUP_STEPS,
@@ -25,6 +25,7 @@ import {
   createInitialPhysics,
   resetBallForServe,
   stepMatchPhysics,
+  stepPaddlesOnly,
   type PaddleInputDir,
   type PhysicsState,
 } from '../engine/pongEngine.ts';
@@ -42,6 +43,7 @@ export interface MatchRecord {
   tick: number;
   countdownEndsAt: number | null;
   countdownEndPerfMs: number | null;
+  countdownPaddlesUnlocked: boolean;
   pauseExpiresAt: number | null;
   disconnectedPlayerId: string | null;
   disconnectTimers: Map<string, ReturnType<typeof setTimeout>>;
@@ -147,6 +149,9 @@ export class MatchManager {
         right: match.score.right,
       },
       countdownEndsAt: match.countdownEndsAt,
+      paddlesUnlocked:
+        match.phase === 'PLAYING' ||
+        (match.phase === 'COUNTDOWN' && match.countdownPaddlesUnlocked),
       pausedReason:
         match.phase === 'PAUSED_DISCONNECT' ? 'Opponent disconnected. Waiting for reconnect.' : null,
       pauseExpiresAt: match.pauseExpiresAt,
@@ -216,6 +221,7 @@ export class MatchManager {
       tick: 0,
       countdownEndsAt: nowEpoch + INITIAL_COUNTDOWN_MS,
       countdownEndPerfMs: nowPerf + INITIAL_COUNTDOWN_MS,
+      countdownPaddlesUnlocked: false,
       pauseExpiresAt: null,
       disconnectedPlayerId: null,
       disconnectTimers: new Map(),
@@ -260,13 +266,51 @@ export class MatchManager {
     match.lastStepPerfMs = nowPerf;
 
     if (match.phase === 'COUNTDOWN') {
-      if (match.countdownEndPerfMs !== null && nowPerf >= match.countdownEndPerfMs) {
-        match.phase = 'PLAYING';
-        match.countdownEndsAt = null;
-        match.countdownEndPerfMs = null;
-        match.accumulatorMs = 0;
-        this.callbacks.onMatchPhase(match, this.getParticipants(match));
-        this.callbacks.onMatchSnapshot(match, this.toSnapshot(match));
+      if (match.countdownEndPerfMs !== null) {
+        const remainingMs = match.countdownEndPerfMs - nowPerf;
+        if (remainingMs <= 0) {
+          match.phase = 'PLAYING';
+          match.countdownEndsAt = null;
+          match.countdownEndPerfMs = null;
+          match.countdownPaddlesUnlocked = true;
+          match.accumulatorMs = SIMULATION_DT_MS;
+          match.snapshotTickCounter = SNAPSHOT_INTERVAL_TICKS - 1;
+          this.callbacks.onMatchPhase(match, this.getParticipants(match));
+          this.callbacks.onMatchSnapshot(match, this.toSnapshot(match));
+          return;
+        }
+
+        if (remainingMs <= COUNTDOWN_PADDLE_UNLOCK_MS) {
+          if (!match.countdownPaddlesUnlocked) {
+            match.countdownPaddlesUnlocked = true;
+            match.accumulatorMs = SIMULATION_DT_MS;
+            match.snapshotTickCounter = SNAPSHOT_INTERVAL_TICKS - 1;
+          } else {
+            match.accumulatorMs = Math.min(
+              match.accumulatorMs + elapsedMs,
+              SIMULATION_DT_MS * MAX_CATCHUP_STEPS,
+            );
+          }
+
+          let stepped = false;
+          while (match.accumulatorMs >= SIMULATION_DT_MS) {
+            match.accumulatorMs -= SIMULATION_DT_MS;
+            match.tick += 1;
+            stepped = true;
+            stepPaddlesOnly(match.physics, match.inputs, SIMULATION_DT_SEC);
+          }
+
+          if (stepped) {
+            match.snapshotTickCounter += 1;
+            if (match.snapshotTickCounter >= SNAPSHOT_INTERVAL_TICKS) {
+              match.snapshotTickCounter = 0;
+              this.callbacks.onMatchSnapshot(match, this.toSnapshot(match));
+            }
+          }
+        } else {
+          match.countdownPaddlesUnlocked = false;
+          match.accumulatorMs = 0;
+        }
       }
       return;
     }
@@ -303,6 +347,8 @@ export class MatchManager {
         match.phase = 'COUNTDOWN';
         match.countdownEndsAt = Date.now() + POINT_COUNTDOWN_MS;
         match.countdownEndPerfMs = performance.now() + POINT_COUNTDOWN_MS;
+        match.countdownPaddlesUnlocked = false;
+        match.accumulatorMs = 0;
         this.callbacks.onMatchPhase(match, this.getParticipants(match));
         this.callbacks.onMatchSnapshot(match, this.toSnapshot(match));
         return;
@@ -377,6 +423,7 @@ export class MatchManager {
     match.pauseExpiresAt = Date.now() + this.graceMs;
     match.countdownEndsAt = null;
     match.countdownEndPerfMs = null;
+    match.countdownPaddlesUnlocked = false;
     match.inputs = { left: 0, right: 0 };
 
     this.callbacks.onMatchPhase(match, this.getParticipants(match));
@@ -412,6 +459,8 @@ export class MatchManager {
         match.pauseExpiresAt = null;
         match.countdownEndsAt = Date.now() + RESUME_COUNTDOWN_MS;
         match.countdownEndPerfMs = performance.now() + RESUME_COUNTDOWN_MS;
+        match.countdownPaddlesUnlocked = false;
+        match.accumulatorMs = 0;
         match.lastStepPerfMs = performance.now();
         this.callbacks.onMatchPhase(match, this.getParticipants(match));
         this.callbacks.onMatchSnapshot(match, this.toSnapshot(match));
@@ -579,6 +628,7 @@ export class MatchManager {
     match.phase = 'FINISHED';
     match.countdownEndsAt = null;
     match.countdownEndPerfMs = null;
+    match.countdownPaddlesUnlocked = false;
     match.pauseExpiresAt = null;
     match.disconnectedPlayerId = null;
 
@@ -603,6 +653,7 @@ export class MatchManager {
     match.phase = 'FORFEITED';
     match.countdownEndsAt = null;
     match.countdownEndPerfMs = null;
+    match.countdownPaddlesUnlocked = false;
     match.pauseExpiresAt = null;
 
     const winnerId = winnerSide === 'left' ? match.leftPlayerId : match.rightPlayerId;

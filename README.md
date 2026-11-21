@@ -50,6 +50,7 @@ npm start        # Runs production server via Node.js (requires npm run build fi
 ## Controls & Match Rules
 
 - **Move Paddle:** `W` / `S` or `ArrowUp` / `ArrowDown`
+- **Countdown Head Start:** Paddles unlock during the final 1 second of the pre-serve countdown (from second 2 onward on match start) so players can position before the ball moves
 - **Win Condition:** First player to 5 points wins
 - **Challenge Timeout:** Pending invitations expire after 30 seconds
 - **Disconnect Grace:** Disconnecting mid-match pauses simulation for 10 seconds for automatic session recovery; failing to reconnect forfeits the match
@@ -65,3 +66,7 @@ npm start        # Runs production server via Node.js (requires npm run build fi
   - Ensure your proxy forwards `Upgrade` and `Connection: upgrade` headers for `/ws`, and add the proxy origin to `ALLOWED_ORIGINS` if `Origin` differs from `Host`.
 - **Trust Note (LAN MVP):**
   - Traffic on a plain HTTP LAN (`http://` / `ws://`) is unencrypted; run behind a trusted local network or terminate TLS in front if deploying on untrusted networks.
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
