@@ -198,3 +198,8 @@ export interface LeaderboardEntry {
   longestMatchMs: number;
   pingMs: number | null;
 }
+
+export interface LeaderboardSummary {
+  totalPlayTimeMs: number;
+  totalPlayerCount: number;
+}

@@ -93,9 +93,18 @@ describe('LeaderboardService', () => {
       pingMs: 63,
     });
 
+    expect(lb.getSummary()).toEqual({
+      totalPlayTimeMs: 147_000,
+      totalPlayerCount: 2,
+    });
+
     lb.markDisconnected('pl_bob');
     const afterDc = lb.getEntries().find((e) => e.playerId === 'pl_bob');
     expect(afterDc?.connected).toBe(false);
     expect(afterDc?.pingMs).toBeNull();
+    expect(lb.getSummary()).toEqual({
+      totalPlayTimeMs: 147_000,
+      totalPlayerCount: 2,
+    });
   });
 });

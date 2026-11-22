@@ -30,6 +30,7 @@ import type {
   ActiveMatchSync,
   ChallengeInfo,
   LeaderboardEntry,
+  LeaderboardSummary,
   LobbyPlayer,
   PlayerProfile,
   PublicArenaConfig,
@@ -103,6 +104,10 @@ export default function App() {
   const [pingMs, setPingMs] = useState<number | null>(null);
   const [arenaConfig, setArenaConfig] = useState<PublicArenaConfig>(DEFAULT_PUBLIC_CONFIG);
   const [leaderboardEntries, setLeaderboardEntries] = useState<LeaderboardEntry[]>([]);
+  const [leaderboardSummary, setLeaderboardSummary] = useState<LeaderboardSummary>({
+    totalPlayTimeMs: 0,
+    totalPlayerCount: 0,
+  });
   const [leaderboardLoading, setLeaderboardLoading] = useState(false);
   const [leaderboardError, setLeaderboardError] = useState<string | null>(null);
   const [selfPlayerId, setSelfPlayerId] = useState<string | null>(null);
@@ -159,11 +164,17 @@ export default function App() {
     fetch('/api/leaderboard')
       .then((res) => {
         if (!res.ok) throw new Error('Failed to load leaderboard standings.');
-        return res.json() as Promise<{ entries: LeaderboardEntry[] }>;
+        return res.json() as Promise<{
+          entries: LeaderboardEntry[];
+          summary?: LeaderboardSummary;
+        }>;
       })
       .then((data) => {
         if (Array.isArray(data.entries)) {
           setLeaderboardEntries(data.entries);
+        }
+        if (data.summary) {
+          setLeaderboardSummary(data.summary);
         }
       })
       .catch((err) => {
@@ -255,6 +266,9 @@ export default function App() {
         }
         case 'leaderboard.updated': {
           setLeaderboardEntries(event.payload.entries);
+          if (event.payload.summary) {
+            setLeaderboardSummary(event.payload.summary);
+          }
           break;
         }
         case 'lobby.snapshot': {
@@ -678,6 +692,7 @@ export default function App() {
         ) : route === '/leaderboard' ? (
           <LeaderboardView
             entries={leaderboardEntries}
+            summary={leaderboardSummary}
             selfPlayerId={selfPlayerId}
             loading={leaderboardLoading}
             error={leaderboardError}

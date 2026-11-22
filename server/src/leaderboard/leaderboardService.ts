@@ -1,5 +1,9 @@
 import { DEMO_PLAYER_ID, DEMO_PLAYER_NICKNAME } from '../../../shared/src/constants.ts';
-import type { LeaderboardEntry, MatchOutcomeReason } from '../../../shared/src/types.ts';
+import type {
+  LeaderboardEntry,
+  LeaderboardSummary,
+  MatchOutcomeReason,
+} from '../../../shared/src/types.ts';
 import type { PlayerSession } from '../sessions/sessionManager.ts';
 
 interface MutableLeaderboardRecord {
@@ -18,6 +22,7 @@ interface MutableLeaderboardRecord {
 
 export class LeaderboardService {
   private readonly records = new Map<string, MutableLeaderboardRecord>();
+  private totalPlayTimeMs = 0;
 
   constructor(includeDemoBot = true) {
     if (includeDemoBot) {
@@ -83,6 +88,7 @@ export class LeaderboardService {
     reason: MatchOutcomeReason;
   }): void {
     const duration = Math.max(1, Math.round(params.durationMs));
+    this.totalPlayTimeMs += duration;
     const isForfeit =
       params.reason === 'FORFEIT_LEAVE' || params.reason === 'FORFEIT_DISCONNECT';
 
@@ -121,5 +127,18 @@ export class LeaderboardService {
       return a.nickname.localeCompare(b.nickname);
     });
     return list;
+  }
+
+  getSummary(): LeaderboardSummary {
+    let totalPlayerCount = 0;
+    for (const rec of this.records.values()) {
+      if (!rec.isBot) {
+        totalPlayerCount += 1;
+      }
+    }
+    return {
+      totalPlayTimeMs: this.totalPlayTimeMs,
+      totalPlayerCount,
+    };
   }
 }

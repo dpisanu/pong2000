@@ -57,7 +57,7 @@ npm start        # Runs production server via Node.js (requires npm run build fi
 
 ## Leaderboard (`/leaderboard`)
 
-Visit `/leaderboard` (or click **Leaderboard** in the top navigation bar, or query `GET /api/leaderboard`) to view live runtime rankings since the server started, including **Demo Player**. Top three players display Gold, Silver, and Bronze trophy icons alongside total matches played, won, lost, forfeited, longest match duration, and live ping / lag status.
+Visit `/leaderboard` (or click **Leaderboard** in the top navigation bar, or query `GET /api/leaderboard`) to view live runtime session totals (**Overall Time Played** and **Overall Player Count**) alongside live player rankings since the server started, including **Demo Player**. Top three players display Gold, Silver, and Bronze trophy icons alongside total matches played, won, lost, forfeited, longest match duration, and live ping / lag status. Session stats reset on server restart.
 
 ## Admin Console (`/admin`)
 

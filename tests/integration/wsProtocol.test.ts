@@ -534,6 +534,8 @@ describe('WebSocket protocol & multiplayer integration', () => {
       (ev) => ev.payload.entries.some((e) => e.playerId === DEMO_PLAYER_ID && e.wins === 1),
     );
     expect(lbEvent.payload.entries[0].playerId).toBe(DEMO_PLAYER_ID);
+    expect(lbEvent.payload.summary.totalPlayerCount).toBe(1);
+    expect(lbEvent.payload.summary.totalPlayTimeMs).toBeGreaterThan(0);
 
     const res = await fetch(`${baseUrl}/api/leaderboard`);
     expect(res.status).toBe(200);
@@ -547,7 +549,14 @@ describe('WebSocket protocol & multiplayer integration', () => {
         longestMatchMs: number;
         pingMs: number | null;
       }>;
+      summary: {
+        totalPlayTimeMs: number;
+        totalPlayerCount: number;
+      };
     };
+
+    expect(data.summary.totalPlayerCount).toBe(1);
+    expect(data.summary.totalPlayTimeMs).toBeGreaterThan(0);
 
     const demoRow = data.entries.find((e) => e.playerId === DEMO_PLAYER_ID);
     const heroRow = data.entries.find((e) => e.playerId === p1.ready.payload.playerId);

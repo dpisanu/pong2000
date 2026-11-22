@@ -1,9 +1,10 @@
-import { ArrowLeft, RefreshCw, Trophy } from 'lucide-react';
-import type { LeaderboardEntry } from '../../shared/src/types.ts';
+import { ArrowLeft, Clock, RefreshCw, Trophy, Users } from 'lucide-react';
+import type { LeaderboardEntry, LeaderboardSummary } from '../../shared/src/types.ts';
 import { AvatarImg } from '../components/AvatarImg.tsx';
 
 interface LeaderboardViewProps {
   entries: LeaderboardEntry[];
+  summary: LeaderboardSummary;
   selfPlayerId: string | null;
   loading: boolean;
   error: string | null;
@@ -18,6 +19,21 @@ function formatDurationMs(ms: number): string {
   const secs = totalSeconds % 60;
   if (mins === 0) return `${secs}s`;
   return `${mins}m ${String(secs).padStart(2, '0')}s`;
+}
+
+function formatTotalPlayTimeMs(ms: number): string {
+  if (!ms || ms <= 0) return '0s';
+  const totalSeconds = Math.max(1, Math.round(ms / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const mins = Math.floor((totalSeconds % 3600) / 60);
+  const secs = totalSeconds % 60;
+  if (hours > 0) {
+    return `${hours}h ${String(mins).padStart(2, '0')}m ${String(secs).padStart(2, '0')}s`;
+  }
+  if (mins > 0) {
+    return `${mins}m ${String(secs).padStart(2, '0')}s`;
+  }
+  return `${secs}s`;
 }
 
 function renderRankTrophy(rank: number) {
@@ -66,6 +82,7 @@ function formatPingCell(entry: LeaderboardEntry): { text: string; colorClass: st
 
 export function LeaderboardView({
   entries,
+  summary,
   selfPlayerId,
   loading,
   error,
@@ -114,7 +131,40 @@ export function LeaderboardView({
         </div>
       )}
 
-      <section className="mt-6 bg-[#151e29] border border-white/10 rounded-xl overflow-hidden">
+      <section
+        aria-label="Session overview"
+        className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-4"
+      >
+        <div className="bg-[#151e29] border border-white/10 rounded-xl px-6 py-4 flex items-center justify-between gap-4">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wider text-slate-400">
+              Overall Time Played
+            </p>
+            <p className="mt-1.5 font-display text-2xl font-bold tracking-tight font-mono-tabular text-slate-100">
+              {formatTotalPlayTimeMs(summary.totalPlayTimeMs)}
+            </p>
+          </div>
+          <div className="w-10 h-10 rounded-lg bg-[#111922] border border-white/10 flex items-center justify-center text-emerald-400 shrink-0">
+            <Clock className="w-5 h-5" aria-hidden="true" />
+          </div>
+        </div>
+
+        <div className="bg-[#151e29] border border-white/10 rounded-xl px-6 py-4 flex items-center justify-between gap-4">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wider text-slate-400">
+              Overall Player Count
+            </p>
+            <p className="mt-1.5 font-display text-2xl font-bold tracking-tight font-mono-tabular text-slate-100">
+              {summary.totalPlayerCount}
+            </p>
+          </div>
+          <div className="w-10 h-10 rounded-lg bg-[#111922] border border-white/10 flex items-center justify-center text-emerald-400 shrink-0">
+            <Users className="w-5 h-5" aria-hidden="true" />
+          </div>
+        </div>
+      </section>
+
+      <section className="mt-4 bg-[#151e29] border border-white/10 rounded-xl overflow-hidden">
         {loading && entries.length === 0 ? (
           <div className="px-6 py-12 text-center text-sm text-slate-400">
             Loading leaderboard standings…

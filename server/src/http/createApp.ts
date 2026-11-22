@@ -176,6 +176,7 @@ export function createApp(options: CreateAppOptions): Express {
   app.get('/api/leaderboard', (_req: Request, res: Response) => {
     res.json({
       entries: leaderboard.getEntries(),
+      summary: leaderboard.getSummary(),
       updatedAt: Date.now(),
     });
   });

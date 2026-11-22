@@ -1,6 +1,6 @@
 # Pong2000 Arena — Project Definition
 
-**Version:** 1.22  
+**Version:** 1.23  
 **Status:** Implemented MVP+ specification  
 **Date:** 2026-11-21  
 **Deployment:** Docker on a networked host  
@@ -191,7 +191,7 @@ pong2000-arena/
 | GET | `/healthz` | Readiness/health status (`status`, `uptimeSeconds`, `activePlayers`, `activeMatches`) |
 | GET | `/api/server-info` | Return prioritized host Network URLs, port, and container detection metadata |
 | GET | `/api/config` | Return current public gameplay rules (excludes admin-only `hostIp` setting) |
-| GET | `/api/leaderboard` | Return runtime player standings (including `Demo Player`) with played, won, lost, forfeited, longest match, and ping stats |
+| GET | `/api/leaderboard` | Return runtime session totals (`summary`: `totalPlayTimeMs`, `totalPlayerCount`) and player standings (`entries`, including `Demo Player`) with played, won, lost, forfeited, longest match, and ping stats |
 | GET | `/api/admin/status` | Check whether first-run passcode setup is needed and verify Bearer session |
 | POST | `/api/admin/setup` | One-time first-run passcode creation when `ADMIN_PASSCODE` is unset (returns Bearer token) |
 | POST | `/api/admin/login` | Rate-limited passcode authentication returning in-memory admin Bearer token |
@@ -263,7 +263,7 @@ Coordinates are normalized to the logical playfield (`0–1`); paddle Y coordina
 |---|---|
 | `session.ready` | Player ID, fresh recovery token, memory-only upload token, `arenaConfig`, full lobby/match resync state |
 | `config.updated` | Broadcast updated `PublicArenaConfig` whenever an admin saves or resets settings |
-| `leaderboard.updated` | Broadcast updated runtime `LeaderboardEntry[]` standings on match completion, joins, or disconnects |
+| `leaderboard.updated` | Broadcast updated runtime `LeaderboardEntry[]` standings and session `LeaderboardSummary` (`totalPlayTimeMs`, `totalPlayerCount`) on match completion, joins, or disconnects |
 | `pong` | Echo `clientTime` and `requestId` so clients measure live WebSocket round-trip ping (`ms`) |
 | `lobby.snapshot` | Initial authoritative roster (includes `Demo Player`) |
 | `lobby.player.upsert` / `lobby.player.remove` | Incremental presence changes |
@@ -409,7 +409,7 @@ Performance values are design targets to verify on real hardware, not guaranteed
 - [x] **A17 Validation:** Invalid commands, malformed messages, unauthorized match input, and invalid uploads do not crash the server.
 - [x] **A18 Admin Configuration (`/admin`):** Operators authenticate via `ADMIN_PASSCODE` or first-run passcode setup and configure paddle length, paddle speed, ball velocities, game rounds, timeouts, Host IP, and the five **Demo User** playing modes (`Wall`, `Gap`, `Honing`, `Swipe`, `Erratic`); changes take effect for new matches and broadcast to connected clients.
 - [x] **A19 Demo Mode & Ping Readout:** Players can challenge `Demo Player` from the lobby to enter an immediate practice match using one randomly selected enabled Demo playing mode (`Wall`, `Gap`, `Honing`, `Swipe`, or `Erratic`), and can inspect their live server round-trip ping latency (`ms`) in both the Top Bar and Match HUD.
-- [x] **A20 Runtime Leaderboard (`/leaderboard` & `GET /api/leaderboard`):** Displays ranked players for the current server runtime (including `Demo Player`), showing Gold/Silver/Bronze trophy icons before the top 3 players' names along with total matches played, won, lost, forfeited, longest match duration, and live ping/lag status.
+- [x] **A20 Runtime Leaderboard (`/leaderboard` & `GET /api/leaderboard`):** Displays non-persistent server-session overview metrics (**Overall Time Played** and **Overall Player Count**) above the ranked players table for the current server runtime (including `Demo Player`), showing Gold/Silver/Bronze trophy icons before the top 3 players' names along with total matches played, won, lost, forfeited, longest match duration, and live ping/lag status.
 
 ### Engineering definition of done
 - [x] Clean Docker build (`app.Dockerfile`) and Compose startup (`compose.yaml`) from README instructions.

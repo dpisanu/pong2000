@@ -4,6 +4,7 @@ import type {
   ChallengeInfo,
   ErrorCode,
   LeaderboardEntry,
+  LeaderboardSummary,
   LobbyPlayer,
   MatchOutcomeReason,
   MatchParticipant,
@@ -279,5 +280,6 @@ export type ServerEvent =
       serverTime: number;
       payload: {
         entries: LeaderboardEntry[];
+        summary: LeaderboardSummary;
       };
     };

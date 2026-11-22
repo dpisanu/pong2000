@@ -806,7 +806,10 @@ export class WsGateway {
       type: 'leaderboard.updated',
       protocolVersion: PROTOCOL_VERSION,
       serverTime: Date.now(),
-      payload: { entries: this.leaderboard.getEntries() },
+      payload: {
+        entries: this.leaderboard.getEntries(),
+        summary: this.leaderboard.getSummary(),
+      },
     };
     for (const sock of this.socketsByPlayerId.values()) {
       this.send(sock.ws, event);
