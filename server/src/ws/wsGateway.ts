@@ -14,6 +14,7 @@ import type { ErrorCode } from '../../../shared/src/types.ts';
 import {
   extractUploadedAvatarKey,
   isValidAvatarId,
+  normalizeDemoModePreference,
   resolveAvatarUrl,
   sanitizeNickname,
 } from '../../../shared/src/validation.ts';
@@ -496,6 +497,11 @@ export class WsGateway {
           session.nickname = nick.value;
           session.avatarId = avatar.avatarId;
           session.avatarUrl = avatar.avatarUrl;
+          if (cmd.payload.demoModePreference !== undefined) {
+            session.demoModePreference = normalizeDemoModePreference(
+              cmd.payload.demoModePreference,
+            );
+          }
           this.leaderboard.upsertPlayer(session);
           this.sendAck(state.ws, cmd.requestId, cmd.type);
           this.broadcastLobbyUpsert(session);
@@ -607,6 +613,11 @@ export class WsGateway {
         existing.nickname = nick.value;
         existing.avatarId = avatar.avatarId;
         existing.avatarUrl = avatar.avatarUrl;
+        if (cmd.payload.profile.demoModePreference !== undefined) {
+          existing.demoModePreference = normalizeDemoModePreference(
+            cmd.payload.profile.demoModePreference,
+          );
+        }
         this.sendSessionReady(state.ws, existing, false);
         return;
       }
@@ -627,6 +638,10 @@ export class WsGateway {
       return;
     }
 
+    const requestedDemoPref = cmd.payload.profile.demoModePreference
+      ? normalizeDemoModePreference(cmd.payload.profile.demoModePreference)
+      : undefined;
+
     let session: PlayerSession | null = null;
     let recovered = false;
 
@@ -637,6 +652,7 @@ export class WsGateway {
         avatarId: avatar.avatarId,
         avatarUrl: avatar.avatarUrl,
         socketId: state.socketId,
+        demoModePreference: requestedDemoPref,
       });
       if (candidate) {
         // Close previous superseded socket for the same player if still open
@@ -656,6 +672,7 @@ export class WsGateway {
         avatarId: avatar.avatarId,
         avatarUrl: avatar.avatarUrl,
         socketId: state.socketId,
+        demoModePreference: requestedDemoPref ?? 'default',
       });
     }
 
@@ -686,6 +703,7 @@ export class WsGateway {
           nickname: session.nickname,
           avatarId: session.avatarId,
           avatarUrl: session.avatarUrl,
+          demoModePreference: session.demoModePreference,
         },
         recoveryToken: session.recoveryToken,
         uploadToken: session.uploadToken,

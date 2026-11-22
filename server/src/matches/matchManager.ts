@@ -238,7 +238,9 @@ export class MatchManager {
       : leftPlayer.isBot
         ? 'left'
         : null;
-    const rules = this.configService.buildMatchRules(demoSide);
+    const humanPlayer = leftPlayer.isBot ? rightPlayer : rightPlayer.isBot ? leftPlayer : null;
+    const preferredDemoMode = humanPlayer?.demoModePreference ?? 'default';
+    const rules = this.configService.buildMatchRules(demoSide, Math.random, preferredDemoMode);
 
     if (!leftPlayer.isBot) {
       leftPlayer.status = 'IN_GAME';

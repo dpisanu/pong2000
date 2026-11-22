@@ -42,9 +42,12 @@ export type ErrorCode =
   | 'NOT_MATCH_PARTICIPANT'
   | 'INVALID_MATCH_STATE';
 
+export type DemoModePreference = 'default' | DemoBehaviorMode;
+
 export interface PlayerProfile {
   nickname: string;
   avatarId: string;
+  demoModePreference?: DemoModePreference;
 }
 
 export interface LobbyPlayer {

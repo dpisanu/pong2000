@@ -27,6 +27,7 @@ import {
 import type {
   ArenaConfig,
   DemoBehaviorMode,
+  DemoModePreference,
   DemoModesConfig,
   MatchRulesConfig,
   PaddleSide,
@@ -126,6 +127,7 @@ export class ServerConfigService {
   buildMatchRules(
     demoSide: PaddleSide | null,
     rng: () => number = Math.random,
+    preferredDemoMode: DemoModePreference = 'default',
   ): MatchRulesConfig {
     const isDemoMatch = demoSide !== null;
     let demoMode: DemoBehaviorMode | null = null;
@@ -133,9 +135,13 @@ export class ServerConfigService {
     let demoSpeed = 0;
 
     if (isDemoMatch) {
-      const enabledModes = getEnabledDemoModes(this.config.demoModes);
-      const idx = Math.min(enabledModes.length - 1, Math.floor(rng() * enabledModes.length));
-      demoMode = enabledModes[idx] ?? 'wall';
+      if (preferredDemoMode !== 'default') {
+        demoMode = preferredDemoMode;
+      } else {
+        const enabledModes = getEnabledDemoModes(this.config.demoModes);
+        const idx = Math.min(enabledModes.length - 1, Math.floor(rng() * enabledModes.length));
+        demoMode = enabledModes[idx] ?? 'wall';
+      }
 
       switch (demoMode) {
         case 'wall':

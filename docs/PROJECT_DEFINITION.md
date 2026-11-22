@@ -1,6 +1,6 @@
 # Pong2000 Arena — Project Definition
 
-**Version:** 1.24  
+**Version:** 1.25
 **Status:** Implemented MVP+ specification  
 **Date:** 2026-11-21  
 **Deployment:** Docker on a networked host  
@@ -46,8 +46,8 @@ Pong2000 Arena is a self-hosted, browser-native, two-player Pong application for
 - Avatar can be selected from 8 bundled predefined SVG emblems **or uploaded** from the player's device (including during initial onboarding, where the file is queued and uploaded immediately once the session handshake issues an upload token).
 - Accept PNG, JPEG, or WebP uploads; enforce a 1 MiB file limit and decode/validate server-side via `sharp`. Re-encode to sanitized 256×256 px WebP (stripping EXIF/metadata); never serve original untrusted bytes or SVG.
 - Uploaded avatars are stored in a Docker volume and exposed via generated opaque IDs/URLs, with a per-session rate limit and stored avatar cap (obsolete uploads are pruned automatically). Use `/avatars/default.svg` as a generic fallback when unavailable.
-- Store nickname, avatar reference, and a reconnect credential in browser `localStorage`. The server assigns an opaque player/session ID (`pl_*`) as the canonical internal identifier and holds the HTTP upload bearer token strictly in client memory.
-- Editing the profile updates lobby presence only after server validation succeeds; rejected edits (such as duplicate nicknames) keep the editor open with inline feedback and do not overwrite saved preferences. Changing an avatar does not interrupt a match.
+- Store nickname, avatar reference, per-player `demoModePreference` (defaulting to `'default'` on initial profile creation), and a reconnect credential in browser `localStorage`. The server assigns an opaque player/session ID (`pl_*`) as the canonical internal identifier and holds the HTTP upload bearer token strictly in client memory.
+- **Edit Player Profile & Demo Player Modes (v1.24):** Once a profile is created, entering Edit mode reveals two tabs (`Profile` and `Demo Player Modes`). In `Demo Player Modes`, a player can toggle one and only one active mode (`Default` on/off for the global Admin Pool, `Wall`, `Gap`, `Honing`, `Swipe`, or `Erratic`) without modifying mode geometry/speed parameters (which remain Admin-only). Editing the profile updates lobby presence only after server validation succeeds; rejected edits (such as duplicate nicknames) keep the editor open with inline feedback and do not overwrite saved preferences. Changing profile settings does not interrupt a match.
 - No password, registration, or identity verification.
 
 ### F2. Live lobby & Demo mode
@@ -71,7 +71,7 @@ Pong2000 Arena is a self-hosted, browser-native, two-player Pong application for
 - Classic 2D Pong on a `16:10` logical arena: one paddle per player, ball, walls, swept/sub-stepped collision response, scores, center serve.
 - Desktop controls: `W`/`S` and `ArrowUp`/`ArrowDown`; prevent browser scrolling (`ArrowUp`, `ArrowDown`, `Space`) while match controls are active. Keyboard listeners remain mounted stably across 30 Hz snapshots (ref-backed dispatch, `e.repeat` ignored) so initial key presses register immediately without spurious direction resets.
 - Server is authoritative for paddle positions, ball physics, collision detection, scoring, and win condition, using the configured runtime `MatchRulesConfig` snapshot at match creation.
-- **Demo Mode:** Challenging `Demo Player` spawns a server-authoritative practice match that randomly picks one of the enabled Demo User playing modes configured in `/admin` (requiring at least one active mode; `Wall` defaults to enabled):
+- **Demo Mode:** Challenging `Demo Player` inspects the human player's saved `demoModePreference` (`default`, `wall`, `gap`, `honing`, `swipe`, or `erratic`). When set to `default`, the server randomly picks one of the globally enabled Demo User playing modes configured in `/admin` (requiring at least one active mode; `Wall` defaults to enabled). When a specific mode is selected in **Edit Player Profile → Demo Player Modes**, that exact mode is loaded with the Admin-configured parameters:
   - `Wall`: `1.00` (`100%`) wall-height stationary paddle.
   - `Gap`: Centered stationary paddle (`0.08–0.99`, default `0.90`) leaving top/bottom edge gaps for angled-shot training.
   - `Honing`: Auto-moving paddle tracking incoming ball position (`0.08–0.99` default `0.20`, speed `0.20–2.50` default `0.70`).
@@ -244,8 +244,8 @@ Coordinates are normalized to the logical playfield (`0–1`); paddle Y coordina
 
 | Type | Key payload | Behavior |
 |---|---|---|
-| `session.hello` | `protocolVersion`, `profile`, optional `recoveryToken` | Validate unique nickname, establish/recover session |
-| `profile.update` | `nickname`, `avatarId` | Validate unique nickname & avatar, broadcast changes |
+| `session.hello` | `protocolVersion`, `profile` (`nickname`, `avatarId`, optional `demoModePreference`), optional `recoveryToken` | Validate unique nickname, establish/recover session |
+| `profile.update` | `nickname`, `avatarId`, optional `demoModePreference` | Validate unique nickname, avatar & mode preference, broadcast changes |
 | `challenge.create` | `targetPlayerId` | Reserve invitation if both available |
 | `challenge.accept` | `challengeId` | Atomically start match |
 | `challenge.decline` | `challengeId` | End invitation |
@@ -408,7 +408,7 @@ Performance values are design targets to verify on real hardware, not guaranteed
 - [x] **A16 Network & Share URL (v1.01):** The app is usable from two networked devices without internet access; **Share Server URL** displays the real host Server URL (from Admin `hostIp`/`PUBLIC_URL`, non-loopback `Host` header, or host network interface) and offline QR code without exposing Docker container bridge (`172.16–31.x.x`) or link-local (`169.254.x.x`) IPs, and omits error boxes or inline IP forms (linking instead to **Open Admin** when no external IP is detected).
 - [x] **A17 Validation:** Invalid commands, malformed messages, unauthorized match input, and invalid uploads do not crash the server.
 - [x] **A18 Admin Configuration (`/admin`):** Operators authenticate via `ADMIN_PASSCODE` or first-run passcode setup and configure paddle length, paddle speed, ball velocities, game rounds, timeouts, Host IP, and the five **Demo User** playing modes (`Wall`, `Gap`, `Honing`, `Swipe`, `Erratic`); changes take effect for new matches and broadcast to connected clients.
-- [x] **A19 Demo Mode & Ping Readout:** Players can challenge `Demo Player` from the lobby to enter an immediate practice match using one randomly selected enabled Demo playing mode (`Wall`, `Gap`, `Honing`, `Swipe`, or `Erratic`), and can inspect live server round-trip ping latency (`ms`) on each Arena Lobby player listing, in the Top Bar, and in the Match HUD.
+- [x] **A19 Demo Mode & Ping Readout:** New player profiles default to `Default` (`'default'`, using the global Admin Panel mode pool), while **Edit Player Profile → Demo Player Modes** lets players toggle one and only one active mode (`Default`, `Wall`, `Gap`, `Honing`, `Swipe`, or `Erratic`) without editing global parameters. Challenging `Demo Player` (including rematches) loads the player's selected preference with Admin-configured geometry/speed, and live server round-trip ping latency (`ms`) appears on each Arena Lobby player listing, in the Top Bar, and in the Match HUD.
 - [x] **A20 Runtime Leaderboard (`/leaderboard` & `GET /api/leaderboard`):** Displays non-persistent server-session overview metrics (**Overall Time Played** and **Overall Player Count**) above the ranked players table for the current server runtime (including `Demo Player`), showing Gold/Silver/Bronze trophy icons before the top 3 players' names along with total matches played, won, lost, forfeited, longest match duration, and overall match-averaged ping/lag (computed from per-match lowest/highest datapoints after dropping the overall lowest and highest outliers when more than two datapoints exist).
 
 ### Engineering definition of done

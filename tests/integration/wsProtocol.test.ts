@@ -749,4 +749,154 @@ describe('WebSocket protocol & multiplayer integration', () => {
     p1.client.ws.close();
     p2.client.ws.close();
   });
+
+  it('applies per-player Demo Player mode preferences on initial match and side-swapped rematch', async () => {
+    const srv = await createTestServer();
+    cleanups.push(srv.close);
+    const baseUrl = `http://127.0.0.1:${srv.port}`;
+
+    // Configure global Admin pool to only Swipe, and customize Erratic global parameters
+    const setupRes = await fetch(`${baseUrl}/api/admin/setup`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ passcode: 'pref-admin-pass' }),
+    });
+    const { token } = (await setupRes.json()) as { token: string };
+
+    const putRes = await fetch(`${baseUrl}/api/admin/config`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        paddleHeight: 0.08,
+        ballInitialSpeed: 1.8,
+        ballMaxSpeed: 2.5,
+        demoModes: {
+          wall: { enabled: false },
+          gap: { enabled: false },
+          honing: { enabled: false },
+          swipe: { enabled: true, paddleHeight: 0.22, speed: 0.9 },
+          erratic: { enabled: false, paddleHeight: 0.42, speed: 1.45 },
+        },
+        winScore: 1,
+        initialCountdownMs: 1000,
+      }),
+    });
+    expect(putRes.status).toBe(200);
+
+    // Initial onboarding defaults to 'default'
+    const p1 = await connectClient(srv.port, 'ModeChooser');
+    expect(p1.ready.payload.profile.demoModePreference).toBe('default');
+
+    // Update profile preference to 'erratic'
+    p1.client.send({
+      type: 'profile.update',
+      requestId: 'pref-set-erratic',
+      payload: {
+        nickname: 'ModeChooser',
+        avatarId: 'gallery:ace-paddle',
+        demoModePreference: 'erratic',
+      },
+    });
+    const ack1 = await p1.client.waitFor(
+      'command.ack',
+      (ev) => ev.requestId === 'pref-set-erratic',
+    );
+    expect(ack1.payload.commandType).toBe('profile.update');
+
+    // Reconnect with recoveryToken and confirm demoModePreference persists on session.ready
+    p1.client.ws.close();
+    const p1Recovered = await connectClient(
+      srv.port,
+      'ModeChooser',
+      p1.ready.payload.recoveryToken,
+    );
+    expect(p1Recovered.ready.payload.recovered).toBe(true);
+    expect(p1Recovered.ready.payload.profile.demoModePreference).toBe('erratic');
+
+    // Challenge Demo Player -> should load Erratic mode using Admin's global Erratic parameters
+    p1Recovered.client.send({
+      type: 'challenge.create',
+      requestId: 'pref-demo-ch-1',
+      payload: { targetPlayerId: DEMO_PLAYER_ID },
+    });
+    const started1 = await p1Recovered.client.waitFor('match.started');
+    expect(started1.payload.yourSide).toBe('left');
+    expect(started1.payload.rules?.demoMode).toBe('erratic');
+    expect(started1.payload.rules?.rightPaddleHeight).toBe(0.42);
+    expect(started1.payload.rules?.demoPaddleSpeed).toBe(1.45);
+
+    // Move human paddle away from center so match 1 completes by SCORE_LIMIT quickly, then rematch
+    p1Recovered.client.send({
+      type: 'match.input',
+      requestId: 'pref-demo-move-1',
+      payload: { matchId: started1.payload.matchId, direction: -1, seq: 1 },
+    });
+    await p1Recovered.client.waitFor(
+      'match.finished',
+      (ev) => ev.payload.matchId === started1.payload.matchId,
+      4000,
+    );
+
+    p1Recovered.client.send({
+      type: 'match.rematch.request',
+      requestId: 'pref-demo-rematch',
+      payload: { matchId: started1.payload.matchId },
+    });
+    const started2 = await p1Recovered.client.waitFor(
+      'match.started',
+      (ev) => ev.payload.matchId !== started1.payload.matchId,
+    );
+    expect(started2.payload.yourSide).toBe('right');
+    expect(started2.payload.rules?.demoMode).toBe('erratic');
+    expect(started2.payload.rules?.leftPaddleHeight).toBe(0.42);
+    expect(started2.payload.rules?.demoPaddleSpeed).toBe(1.45);
+
+    // Return to lobby, reset preference to 'default', and confirm global Admin pool (Swipe) is used
+    p1Recovered.client.send({
+      type: 'match.leave',
+      requestId: 'pref-demo-leave-2',
+      payload: { matchId: started2.payload.matchId },
+    });
+    await p1Recovered.client.waitFor(
+      'match.finished',
+      (ev) => ev.payload.matchId === started2.payload.matchId,
+    );
+    p1Recovered.client.send({
+      type: 'lobby.join',
+      requestId: 'pref-lobby-join',
+      payload: {},
+    });
+    await p1Recovered.client.waitFor('command.ack', (ev) => ev.requestId === 'pref-lobby-join');
+
+    p1Recovered.client.send({
+      type: 'profile.update',
+      requestId: 'pref-set-default',
+      payload: {
+        nickname: 'ModeChooser',
+        avatarId: 'gallery:ace-paddle',
+        demoModePreference: 'default',
+      },
+    });
+    await p1Recovered.client.waitFor('command.ack', (ev) => ev.requestId === 'pref-set-default');
+
+    p1Recovered.client.send({
+      type: 'challenge.create',
+      requestId: 'pref-demo-ch-3',
+      payload: { targetPlayerId: DEMO_PLAYER_ID },
+    });
+    const started3 = await p1Recovered.client.waitFor(
+      'match.started',
+      (ev) =>
+        ev.payload.matchId !== started1.payload.matchId &&
+        ev.payload.matchId !== started2.payload.matchId,
+    );
+    expect(started3.payload.rules?.demoMode).toBe('swipe');
+    expect(started3.payload.rules?.rightPaddleHeight).toBe(0.22);
+    expect(started3.payload.rules?.demoPaddleSpeed).toBe(0.9);
+
+    p1Recovered.client.ws.close();
+  });
 });

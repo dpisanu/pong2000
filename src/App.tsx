@@ -98,7 +98,13 @@ export default function App() {
   const [route, setRoute] = useState<AppRoute>(() => readRoute());
   const [savedProfile, setSavedProfile] = useState<PlayerProfile | null>(() => {
     const stored = loadStoredProfile();
-    return stored ? { nickname: stored.nickname, avatarId: stored.avatarId } : null;
+    return stored
+      ? {
+          nickname: stored.nickname,
+          avatarId: stored.avatarId,
+          demoModePreference: stored.demoModePreference ?? 'default',
+        }
+      : null;
   });
   const [connectionState, setConnectionState] = useState<ConnectionState>('DISCONNECTED');
   const [pingMs, setPingMs] = useState<number | null>(null);
@@ -227,6 +233,7 @@ export default function App() {
           const normalizedProfile: PlayerProfile = {
             nickname: profile.nickname,
             avatarId: profile.avatarId,
+            demoModePreference: profile.demoModePreference ?? 'default',
           };
           setSavedProfile(normalizedProfile);
           saveStoredProfile({
@@ -243,6 +250,7 @@ export default function App() {
                 const updated: PlayerProfile = {
                   nickname: normalizedProfile.nickname,
                   avatarId: uploaded.avatarId,
+                  demoModePreference: normalizedProfile.demoModePreference,
                 };
                 setSavedProfile(updated);
                 saveStoredProfile({
@@ -455,7 +463,11 @@ export default function App() {
     const stored = loadStoredProfile();
     if (stored) {
       client.connect(
-        { nickname: stored.nickname, avatarId: stored.avatarId },
+        {
+          nickname: stored.nickname,
+          avatarId: stored.avatarId,
+          demoModePreference: stored.demoModePreference ?? 'default',
+        },
         stored.recoveryToken,
       );
     }
@@ -477,11 +489,16 @@ export default function App() {
 
   const handleSaveOnboarding = (profile: PlayerProfile, pendingFile?: File | null) => {
     pendingUploadFileRef.current = pendingFile ?? null;
+    const initialProfile: PlayerProfile = {
+      nickname: profile.nickname,
+      avatarId: profile.avatarId,
+      demoModePreference: 'default',
+    };
     setProfileServerError(null);
     setSavingProfile(true);
-    setSavedProfile(profile);
-    saveStoredProfile(profile);
-    clientRef.current?.connect(profile);
+    setSavedProfile(initialProfile);
+    saveStoredProfile(initialProfile);
+    clientRef.current?.connect(initialProfile);
   };
 
   const handleSaveEditProfile = (profile: PlayerProfile) => {
@@ -526,8 +543,15 @@ export default function App() {
       <ProfileSetupView
         mode="onboarding"
         initialProfile={
-          stored ? { nickname: stored.nickname, avatarId: stored.avatarId } : null
+          stored
+            ? {
+                nickname: stored.nickname,
+                avatarId: stored.avatarId,
+                demoModePreference: 'default',
+              }
+            : null
         }
+        arenaConfig={arenaConfig}
         uploadToken={null}
         serverError={profileServerError}
         saving={savingProfile}
@@ -718,6 +742,7 @@ export default function App() {
             arenaConfig={arenaConfig}
             connected={connectionState === 'CONNECTED'}
             pingMs={pingMs}
+            demoModePreference={savedProfile?.demoModePreference ?? 'default'}
             onChallenge={(targetId) => clientRef.current?.createChallenge(targetId)}
             onAcceptChallenge={(id) => clientRef.current?.acceptChallenge(id)}
             onDeclineChallenge={(id) => clientRef.current?.declineChallenge(id)}
@@ -735,6 +760,7 @@ export default function App() {
         <ProfileSetupView
           mode="edit"
           initialProfile={savedProfile}
+          arenaConfig={arenaConfig}
           uploadToken={uploadToken}
           serverError={profileServerError}
           saving={savingProfile}

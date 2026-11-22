@@ -7,6 +7,8 @@ import { MAX_AVATAR_BYTES } from '../../shared/src/constants.ts';
 import {
   ArenaConfigSchema,
   isValidAvatarId,
+  isValidDemoModePreference,
+  normalizeDemoModePreference,
   resolveAvatarUrl,
   sanitizeNickname,
   validateHostIpInput,
@@ -32,6 +34,20 @@ describe('validation helpers', () => {
     );
     expect(isValidAvatarId('uploaded:../etc/passwd')).toBe(false);
     expect(resolveAvatarUrl('invalid')).toBe('/avatars/default.svg');
+  });
+
+  it('validates and normalizes per-player Demo Mode preferences', () => {
+    expect(isValidDemoModePreference('default')).toBe(true);
+    expect(isValidDemoModePreference('wall')).toBe(true);
+    expect(isValidDemoModePreference('gap')).toBe(true);
+    expect(isValidDemoModePreference('honing')).toBe(true);
+    expect(isValidDemoModePreference('swipe')).toBe(true);
+    expect(isValidDemoModePreference('erratic')).toBe(true);
+    expect(isValidDemoModePreference('unknown')).toBe(false);
+
+    expect(normalizeDemoModePreference(undefined)).toBe('default');
+    expect(normalizeDemoModePreference('bogus')).toBe('default');
+    expect(normalizeDemoModePreference('erratic')).toBe('erratic');
   });
 });
 
@@ -187,6 +203,20 @@ describe('ServerConfigService & ArenaConfigSchema', () => {
     expect(swipePick.demoMode).toBe('swipe');
     expect(swipePick.rightPaddleHeight).toBe(0.2);
     expect(swipePick.demoPaddleSpeed).toBe(0.85);
+
+    // Player preference overrides global enabled pool while using Admin-configured geometry/speed
+    const overrideErratic = svc.buildMatchRules('right', () => 0.05, 'erratic');
+    expect(overrideErratic.demoMode).toBe('erratic');
+    expect(overrideErratic.rightPaddleHeight).toBe(0.3);
+    expect(overrideErratic.demoPaddleSpeed).toBe(1.0);
+
+    const overrideWall = svc.buildMatchRules('left', () => 0.95, 'wall');
+    expect(overrideWall.demoMode).toBe('wall');
+    expect(overrideWall.leftPaddleHeight).toBe(1.0);
+    expect(overrideWall.demoPaddleSpeed).toBe(0);
+
+    const defaultPool = svc.buildMatchRules('right', () => 0.05, 'default');
+    expect(defaultPool.demoMode).toBe('gap');
 
     const reset = svc.resetConfig();
     expect(reset.hostIp).toBe('192.168.1.50');

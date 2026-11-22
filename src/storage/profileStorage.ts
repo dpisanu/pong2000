@@ -1,8 +1,12 @@
+import type { DemoModePreference } from '../../shared/src/types.ts';
+import { normalizeDemoModePreference } from '../../shared/src/validation.ts';
+
 const STORAGE_KEY = 'lan_pong_profile_v1';
 
 export interface StoredProfile {
   nickname: string;
   avatarId: string;
+  demoModePreference?: DemoModePreference;
   recoveryToken?: string;
 }
 
@@ -17,6 +21,7 @@ export function loadStoredProfile(): StoredProfile | null {
     return {
       nickname: parsed.nickname,
       avatarId: parsed.avatarId,
+      demoModePreference: normalizeDemoModePreference(parsed.demoModePreference),
       recoveryToken:
         typeof parsed.recoveryToken === 'string' ? parsed.recoveryToken : undefined,
     };

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type {
   ActiveMatchSync,
   ChallengeInfo,
+  DemoModePreference,
   ErrorCode,
   LeaderboardEntry,
   LeaderboardSummary,
@@ -18,9 +19,19 @@ import type {
 
 const RequestIdSchema = z.string().min(1).max(64);
 
+const DemoModePreferenceSchema = z.enum([
+  'default',
+  'wall',
+  'gap',
+  'honing',
+  'swipe',
+  'erratic',
+]);
+
 const ProfilePayloadSchema = z.object({
   nickname: z.string().min(1).max(64),
   avatarId: z.string().min(1).max(96),
+  demoModePreference: DemoModePreferenceSchema.optional(),
 });
 
 export const ClientCommandSchema = z.discriminatedUnion('type', [
@@ -124,6 +135,7 @@ export type ServerEvent =
           nickname: string;
           avatarId: string;
           avatarUrl: string;
+          demoModePreference: DemoModePreference;
         };
         recoveryToken: string;
         uploadToken: string;

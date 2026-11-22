@@ -3,7 +3,11 @@ import {
   DEMO_PLAYER_ID,
   DEMO_PLAYER_NICKNAME,
 } from '../../../shared/src/constants.ts';
-import type { LobbyPlayer, PlayerStatus } from '../../../shared/src/types.ts';
+import type {
+  DemoModePreference,
+  LobbyPlayer,
+  PlayerStatus,
+} from '../../../shared/src/types.ts';
 
 export interface PlayerSession {
   playerId: string;
@@ -12,6 +16,7 @@ export interface PlayerSession {
   nickname: string;
   avatarId: string;
   avatarUrl: string;
+  demoModePreference: DemoModePreference;
   status: PlayerStatus;
   priorStatus: 'AVAILABLE' | 'INVITED' | 'IN_GAME';
   activeChallengeId: string | null;
@@ -38,6 +43,7 @@ export class SessionManager {
         nickname: DEMO_PLAYER_NICKNAME,
         avatarId: 'gallery:spin-owl',
         avatarUrl: '/avatars/spin-owl.svg',
+        demoModePreference: 'default',
         status: 'AVAILABLE',
         priorStatus: 'AVAILABLE',
         activeChallengeId: null,
@@ -65,6 +71,7 @@ export class SessionManager {
     avatarId: string;
     avatarUrl: string;
     socketId: string;
+    demoModePreference?: DemoModePreference;
   }): PlayerSession {
     const playerId = this.generatePlayerId();
     const recoveryToken = this.generateToken();
@@ -77,6 +84,7 @@ export class SessionManager {
       nickname: params.nickname,
       avatarId: params.avatarId,
       avatarUrl: params.avatarUrl,
+      demoModePreference: params.demoModePreference ?? 'default',
       status: 'AVAILABLE',
       priorStatus: 'AVAILABLE',
       activeChallengeId: null,
@@ -100,6 +108,7 @@ export class SessionManager {
     avatarId: string;
     avatarUrl: string;
     socketId: string;
+    demoModePreference?: DemoModePreference;
   }): PlayerSession | null {
     const playerId = this.recoveryIndex.get(params.recoveryToken);
     if (!playerId) return null;
@@ -128,6 +137,9 @@ export class SessionManager {
     session.nickname = params.nickname;
     session.avatarId = params.avatarId;
     session.avatarUrl = params.avatarUrl;
+    if (params.demoModePreference) {
+      session.demoModePreference = params.demoModePreference;
+    }
     session.connected = true;
     session.socketId = params.socketId;
 

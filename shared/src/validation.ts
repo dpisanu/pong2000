@@ -68,6 +68,30 @@ export function fallbackAvatarId(): string {
   return DEFAULT_AVATAR_ID;
 }
 
+export const DEMO_MODE_PREFERENCES = [
+  'default',
+  'wall',
+  'gap',
+  'honing',
+  'swipe',
+  'erratic',
+] as const;
+
+export function isValidDemoModePreference(
+  val: unknown,
+): val is (typeof DEMO_MODE_PREFERENCES)[number] {
+  return (
+    typeof val === 'string' &&
+    (DEMO_MODE_PREFERENCES as readonly string[]).includes(val)
+  );
+}
+
+export function normalizeDemoModePreference(
+  val: unknown,
+): (typeof DEMO_MODE_PREFERENCES)[number] {
+  return isValidDemoModePreference(val) ? val : 'default';
+}
+
 export function validateHostIpInput(raw: string): { ok: true; value: string } | { ok: false; error: string } {
   const trimmed = raw.trim().replace(/\/+$/, '');
   if (!trimmed) {

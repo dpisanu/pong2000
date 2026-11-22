@@ -50,7 +50,7 @@ npm start        # Runs production server via Node.js (requires npm run build fi
 ## Controls, Demo Mode & Match Rules
 
 - **Move Paddle:** `W` / `S` or `ArrowUp` / `ArrowDown`
-- **Demo Mode (`Demo Player`):** Challenge **Demo Player** in the Lobby at any time to auto-start a practice match against a full-height opponent paddle to test paddle controls and angled ball bounces.
+- **Demo Mode (`Demo Player`):** Challenge **Demo Player** in the Lobby at any time to auto-start a practice match. Initial player profiles start with the **Default** preference (using the global Admin Panel mode pool). After creating a profile, players can open **Edit Profile → Demo Player Modes** to toggle a single active mode (`Default`, `Wall`, `Gap`, `Honing`, `Swipe`, or `Erratic`) for their own Demo Player matches without altering global mode settings.
 - **Countdown Head Start:** Paddles unlock during the final 1 second of the pre-serve countdown (from second 2 onward on match start) so players can position before the ball moves.
 - **Win Condition & Timeouts:** Default first to 5 points wins, 30s challenge expiry, and 10s disconnect grace (all configurable at runtime in `/admin`).
 - **Live Server Ping:** Real-time WebSocket round-trip latency (`ms`) appears on every player's Arena Lobby listing, in the Top Bar, and in the Match HUD to spot network lag immediately.
@@ -66,7 +66,7 @@ Visit `/admin` (or click **Admin** in the top navigation bar) to configure runti
 - **Host IP / URL:** Explicitly set the LAN IPv4 address or URL shown in **Share Game URL** (recommended when running inside Docker on bridge networking).
 - **Gameplay Physics & Rules:** Tune paddle length (`0.08–0.45`), paddle speed (`0.30–2.50`), ball initial/increment/max speeds, and points to win (`1–21`).
 - **Timeouts:** Adjust challenge expiry, disconnect grace period, and initial/after-point/reconnect countdown durations.
-- **Demo User:** Toggle and tune each Demo Player playing mode (`Wall`, `Gap`, `Honing`, `Swipe`, `Erratic`). At least one mode stays active, and Demo Player randomly picks one enabled behavior at the start of each practice match.
+- **Demo User:** Toggle and tune each global Demo Player playing mode (`Wall`, `Gap`, `Honing`, `Swipe`, `Erratic`). At least one global mode stays active; players set to **Default** randomly receive one globally enabled mode, while players who select a specific mode in **Edit Profile → Demo Player Modes** play that mode with the Admin-configured parameters.
 
 Set `ADMIN_PASSCODE` in `.env` to lock `/admin` with a predefined passcode, or leave it unset to claim a one-time passcode on your first visit to `/admin`.
 

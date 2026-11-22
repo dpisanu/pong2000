@@ -23,6 +23,7 @@ function makeHumanSession(playerId: string, nickname: string): PlayerSession {
     disconnectExpiryTimer: null,
     createdAt: Date.now(),
     pingMs: null,
+    demoModePreference: 'default',
   };
 }
 

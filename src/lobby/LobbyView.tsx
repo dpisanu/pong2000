@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Swords, UserPlus } from 'lucide-react';
 import type {
   ChallengeInfo,
+  DemoModePreference,
   LobbyPlayer,
   PlayerStatus,
   PublicArenaConfig,
@@ -15,6 +16,7 @@ interface LobbyViewProps {
   arenaConfig: PublicArenaConfig;
   connected: boolean;
   pingMs: number | null;
+  demoModePreference?: DemoModePreference;
   onChallenge: (targetPlayerId: string) => void;
   onAcceptChallenge: (challengeId: string) => void;
   onDeclineChallenge: (challengeId: string) => void;
@@ -66,6 +68,7 @@ export function LobbyView({
   arenaConfig,
   connected,
   pingMs,
+  demoModePreference = 'default',
   onChallenge,
   onAcceptChallenge,
   onDeclineChallenge,
@@ -196,6 +199,25 @@ export function LobbyView({
                             {pingMeta.text}
                           </span>
                           {player.isBot && (() => {
+                            if (demoModePreference !== 'default') {
+                              const labelMap: Record<Exclude<DemoModePreference, 'default'>, string> = {
+                                wall: 'Wall',
+                                gap: `Gap (${Math.round(arenaConfig.demoModes.gap.paddleHeight * 100)}%)`,
+                                honing: 'Honing',
+                                swipe: 'Swipe',
+                                erratic: 'Erratic',
+                              };
+                              return (
+                                <>
+                                  <span className="text-slate-500" aria-hidden="true">
+                                    ·
+                                  </span>
+                                  <span className="text-slate-400">
+                                    Demo mode · {labelMap[demoModePreference]} (Profile) · Auto-accepts
+                                  </span>
+                                </>
+                              );
+                            }
                             const activeLabels: string[] = [];
                             if (arenaConfig.demoModes.wall.enabled) activeLabels.push('Wall');
                             if (arenaConfig.demoModes.gap.enabled) {
