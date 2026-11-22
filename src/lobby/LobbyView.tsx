@@ -14,6 +14,7 @@ interface LobbyViewProps {
   activeChallenge: ChallengeInfo | null;
   arenaConfig: PublicArenaConfig;
   connected: boolean;
+  pingMs: number | null;
   onChallenge: (targetPlayerId: string) => void;
   onAcceptChallenge: (challengeId: string) => void;
   onDeclineChallenge: (challengeId: string) => void;
@@ -35,12 +36,36 @@ function formatStatusText(status: PlayerStatus): { label: string; colorClass: st
   }
 }
 
+function formatLobbyPing(
+  player: Pick<LobbyPlayer, 'isBot' | 'status' | 'pingMs'>,
+  fallbackPingMs?: number | null,
+): { text: string; colorClass: string } {
+  if (player.isBot) {
+    return { text: 'Ping: 0 ms · Local', colorClass: 'text-slate-400' };
+  }
+  if (player.status === 'DISCONNECTED') {
+    return { text: 'Ping: Offline', colorClass: 'text-slate-500' };
+  }
+  const resolvedPing = player.pingMs ?? fallbackPingMs ?? null;
+  if (resolvedPing === null) {
+    return { text: 'Ping: Measuring…', colorClass: 'text-slate-400' };
+  }
+  if (resolvedPing >= 100) {
+    return { text: `Ping: ${resolvedPing} ms · High lag`, colorClass: 'text-red-400' };
+  }
+  if (resolvedPing >= 50) {
+    return { text: `Ping: ${resolvedPing} ms · Moderate lag`, colorClass: 'text-amber-300' };
+  }
+  return { text: `Ping: ${resolvedPing} ms · Low`, colorClass: 'text-emerald-400' };
+}
+
 export function LobbyView({
   selfPlayerId,
   players,
   activeChallenge,
   arenaConfig,
   connected,
+  pingMs,
   onChallenge,
   onAcceptChallenge,
   onDeclineChallenge,
@@ -142,6 +167,7 @@ export function LobbyView({
             <ul className="divide-y divide-white/10">
               {visiblePlayers.map((player) => {
                 const statusMeta = formatStatusText(player.status);
+                const pingMeta = formatLobbyPing(player);
                 const canChallenge = selfAvailable && player.status === 'AVAILABLE';
                 return (
                   <li
@@ -162,6 +188,12 @@ export function LobbyView({
                         <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs">
                           <span className={`font-medium ${statusMeta.colorClass}`}>
                             {statusMeta.label}
+                          </span>
+                          <span className="text-slate-500" aria-hidden="true">
+                            ·
+                          </span>
+                          <span className={`font-mono-tabular ${pingMeta.colorClass}`}>
+                            {pingMeta.text}
                           </span>
                           {player.isBot && (() => {
                             const activeLabels: string[] = [];
@@ -332,8 +364,18 @@ export function LobbyView({
                   <div className="text-base font-semibold text-slate-100 truncate">
                     {selfPlayer.nickname}
                   </div>
-                  <div className="text-xs text-emerald-400">
-                    {formatStatusText(selfPlayer.status).label}
+                  <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs">
+                    <span className={`font-medium ${formatStatusText(selfPlayer.status).colorClass}`}>
+                      {formatStatusText(selfPlayer.status).label}
+                    </span>
+                    <span className="text-slate-500" aria-hidden="true">
+                      ·
+                    </span>
+                    <span
+                      className={`font-mono-tabular ${formatLobbyPing(selfPlayer, pingMs).colorClass}`}
+                    >
+                      {formatLobbyPing(selfPlayer, pingMs).text}
+                    </span>
                   </div>
                 </div>
                 <button

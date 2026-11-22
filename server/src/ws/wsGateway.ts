@@ -191,11 +191,23 @@ export class WsGateway {
         onMatchFinished: (match, winner, winnerSide, reason, durationMs) => {
           const loserId =
             winner.playerId === match.leftPlayerId ? match.rightPlayerId : match.leftPlayerId;
+          const winnerSideStats =
+            winner.playerId === match.leftPlayerId ? match.pingStats.left : match.pingStats.right;
+          const loserSideStats =
+            loserId === match.leftPlayerId ? match.pingStats.left : match.pingStats.right;
           this.leaderboard.recordMatchResult({
             winnerId: winner.playerId,
             loserId,
             durationMs,
             reason,
+            winnerPingRange:
+              winnerSideStats.minPingMs !== null && winnerSideStats.maxPingMs !== null
+                ? { minMs: winnerSideStats.minPingMs, maxMs: winnerSideStats.maxPingMs }
+                : undefined,
+            loserPingRange:
+              loserSideStats.minPingMs !== null && loserSideStats.maxPingMs !== null
+                ? { minMs: loserSideStats.minPingMs, maxMs: loserSideStats.maxPingMs }
+                : undefined,
           });
           this.broadcastLeaderboard();
 
@@ -312,7 +324,8 @@ export class WsGateway {
         const session = this.sessions.getById(state.playerId);
         if (session && session.pingMs === null) {
           session.pingMs = measured;
-          this.leaderboard.updatePing(session.playerId, measured);
+          this.matches.recordPingSample(session.playerId, measured);
+          this.broadcastLobbyUpsert(session);
         }
       }
     });
@@ -409,9 +422,13 @@ export class WsGateway {
         const roundedPing = Math.max(0, Math.round(cmd.payload.lastPingMs));
         const sess = this.sessions.getById(state.playerId);
         if (sess) {
+          const changed = sess.pingMs !== roundedPing;
           sess.pingMs = roundedPing;
+          this.matches.recordPingSample(state.playerId, roundedPing);
+          if (changed) {
+            this.broadcastLobbyUpsert(sess);
+          }
         }
-        this.leaderboard.updatePing(state.playerId, roundedPing);
       }
       this.send(state.ws, {
         type: 'pong',

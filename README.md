@@ -53,11 +53,11 @@ npm start        # Runs production server via Node.js (requires npm run build fi
 - **Demo Mode (`Demo Player`):** Challenge **Demo Player** in the Lobby at any time to auto-start a practice match against a full-height opponent paddle to test paddle controls and angled ball bounces.
 - **Countdown Head Start:** Paddles unlock during the final 1 second of the pre-serve countdown (from second 2 onward on match start) so players can position before the ball moves.
 - **Win Condition & Timeouts:** Default first to 5 points wins, 30s challenge expiry, and 10s disconnect grace (all configurable at runtime in `/admin`).
-- **Live Server Ping:** Real-time WebSocket round-trip latency (`ms`) appears in the Top Bar and Match HUD to spot network lag immediately.
+- **Live Server Ping:** Real-time WebSocket round-trip latency (`ms`) appears on every player's Arena Lobby listing, in the Top Bar, and in the Match HUD to spot network lag immediately.
 
 ## Leaderboard (`/leaderboard`)
 
-Visit `/leaderboard` (or click **Leaderboard** in the top navigation bar, or query `GET /api/leaderboard`) to view live runtime session totals (**Overall Time Played** and **Overall Player Count**) alongside live player rankings since the server started, including **Demo Player**. Top three players display Gold, Silver, and Bronze trophy icons alongside total matches played, won, lost, forfeited, longest match duration, and live ping / lag status. Session stats reset on server restart.
+Visit `/leaderboard` (or click **Leaderboard** in the top navigation bar, or query `GET /api/leaderboard`) to view live runtime session totals (**Overall Time Played** and **Overall Player Count**) alongside live player rankings since the server started, including **Demo Player**. Top three players display Gold, Silver, and Bronze trophy icons alongside total matches played, won, lost, forfeited, longest match duration, and overall match-averaged ping / lag (collected from each match's lowest and highest ping values with the overall lowest and highest outliers removed). Session stats reset on server restart.
 
 ## Admin Console (`/admin`)
 

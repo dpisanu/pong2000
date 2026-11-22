@@ -1,6 +1,6 @@
 # Pong2000 Arena — Project Definition
 
-**Version:** 1.23  
+**Version:** 1.24  
 **Status:** Implemented MVP+ specification  
 **Date:** 2026-11-21  
 **Deployment:** Docker on a networked host  
@@ -57,7 +57,7 @@ Pong2000 Arena is a self-hosted, browser-native, two-player Pong application for
 - Update the list automatically via WebSocket events; no manual refresh.
 - Do not allow challenging oneself, offline players, or human players not `AVAILABLE`.
 - Multiple concurrent games (including concurrent Demo matches for different players) are supported; the lobby reflects player availability accurately.
-- Display a clear server-connection indicator, live WebSocket round-trip ping latency (`ms`), and reconnecting state.
+- Display a clear server-connection indicator, live WebSocket round-trip ping latency (`ms`) for each player in their Arena Lobby listing and profile card, and reconnecting state.
 
 ### F3. Challenges
 - An available player may invite one other available player.
@@ -191,7 +191,7 @@ pong2000-arena/
 | GET | `/healthz` | Readiness/health status (`status`, `uptimeSeconds`, `activePlayers`, `activeMatches`) |
 | GET | `/api/server-info` | Return prioritized host Network URLs, port, and container detection metadata |
 | GET | `/api/config` | Return current public gameplay rules (excludes admin-only `hostIp` setting) |
-| GET | `/api/leaderboard` | Return runtime session totals (`summary`: `totalPlayTimeMs`, `totalPlayerCount`) and player standings (`entries`, including `Demo Player`) with played, won, lost, forfeited, longest match, and ping stats |
+| GET | `/api/leaderboard` | Return runtime session totals (`summary`: `totalPlayTimeMs`, `totalPlayerCount`) and player standings (`entries`, including `Demo Player`) with played, won, lost, forfeited, longest match, and trimmed match-averaged ping stats |
 | GET | `/api/admin/status` | Check whether first-run passcode setup is needed and verify Bearer session |
 | POST | `/api/admin/setup` | One-time first-run passcode creation when `ADMIN_PASSCODE` is unset (returns Bearer token) |
 | POST | `/api/admin/login` | Rate-limited passcode authentication returning in-memory admin Bearer token |
@@ -408,8 +408,8 @@ Performance values are design targets to verify on real hardware, not guaranteed
 - [x] **A16 Network & Share URL (v1.01):** The app is usable from two networked devices without internet access; **Share Server URL** displays the real host Server URL (from Admin `hostIp`/`PUBLIC_URL`, non-loopback `Host` header, or host network interface) and offline QR code without exposing Docker container bridge (`172.16–31.x.x`) or link-local (`169.254.x.x`) IPs, and omits error boxes or inline IP forms (linking instead to **Open Admin** when no external IP is detected).
 - [x] **A17 Validation:** Invalid commands, malformed messages, unauthorized match input, and invalid uploads do not crash the server.
 - [x] **A18 Admin Configuration (`/admin`):** Operators authenticate via `ADMIN_PASSCODE` or first-run passcode setup and configure paddle length, paddle speed, ball velocities, game rounds, timeouts, Host IP, and the five **Demo User** playing modes (`Wall`, `Gap`, `Honing`, `Swipe`, `Erratic`); changes take effect for new matches and broadcast to connected clients.
-- [x] **A19 Demo Mode & Ping Readout:** Players can challenge `Demo Player` from the lobby to enter an immediate practice match using one randomly selected enabled Demo playing mode (`Wall`, `Gap`, `Honing`, `Swipe`, or `Erratic`), and can inspect their live server round-trip ping latency (`ms`) in both the Top Bar and Match HUD.
-- [x] **A20 Runtime Leaderboard (`/leaderboard` & `GET /api/leaderboard`):** Displays non-persistent server-session overview metrics (**Overall Time Played** and **Overall Player Count**) above the ranked players table for the current server runtime (including `Demo Player`), showing Gold/Silver/Bronze trophy icons before the top 3 players' names along with total matches played, won, lost, forfeited, longest match duration, and live ping/lag status.
+- [x] **A19 Demo Mode & Ping Readout:** Players can challenge `Demo Player` from the lobby to enter an immediate practice match using one randomly selected enabled Demo playing mode (`Wall`, `Gap`, `Honing`, `Swipe`, or `Erratic`), and can inspect live server round-trip ping latency (`ms`) on each Arena Lobby player listing, in the Top Bar, and in the Match HUD.
+- [x] **A20 Runtime Leaderboard (`/leaderboard` & `GET /api/leaderboard`):** Displays non-persistent server-session overview metrics (**Overall Time Played** and **Overall Player Count**) above the ranked players table for the current server runtime (including `Demo Player`), showing Gold/Silver/Bronze trophy icons before the top 3 players' names along with total matches played, won, lost, forfeited, longest match duration, and overall match-averaged ping/lag (computed from per-match lowest/highest datapoints after dropping the overall lowest and highest outliers when more than two datapoints exist).
 
 ### Engineering definition of done
 - [x] Clean Docker build (`app.Dockerfile`) and Compose startup (`compose.yaml`) from README instructions.

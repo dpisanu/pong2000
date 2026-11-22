@@ -68,8 +68,10 @@ function formatPingCell(entry: LeaderboardEntry): { text: string; colorClass: st
   if (entry.isBot) {
     return { text: '0 ms · Local', colorClass: 'text-slate-400' };
   }
-  if (!entry.connected || entry.pingMs === null) {
-    return { text: 'Offline', colorClass: 'text-slate-500' };
+  if (entry.pingMs === null) {
+    return entry.connected
+      ? { text: '—', colorClass: 'text-slate-500' }
+      : { text: 'Offline', colorClass: 'text-slate-500' };
   }
   if (entry.pingMs >= 100) {
     return { text: `${entry.pingMs} ms · High lag`, colorClass: 'text-red-400' };
@@ -97,7 +99,7 @@ export function LeaderboardView({
             Arena Leaderboard
           </h1>
           <p className="mt-1 text-sm text-slate-400">
-            Live session rankings since server start · Includes Demo Player · Resets on restart
+            Live session rankings since server start · Includes Demo Player · Avg ping drops lowest &amp; highest match outliers · Resets on restart
           </p>
         </div>
 
@@ -185,7 +187,7 @@ export function LeaderboardView({
                   <th className="py-3.5 px-4 text-right whitespace-nowrap">Lost</th>
                   <th className="py-3.5 px-4 text-right whitespace-nowrap">Forfeited</th>
                   <th className="py-3.5 px-4 text-right whitespace-nowrap">Longest Match</th>
-                  <th className="py-3.5 pl-4 pr-6 text-right whitespace-nowrap">Ping / Lag</th>
+                  <th className="py-3.5 pl-4 pr-6 text-right whitespace-nowrap">Avg Ping / Lag</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/10 text-sm">

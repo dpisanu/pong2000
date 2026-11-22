@@ -210,6 +210,7 @@ export class SessionManager {
       avatarId: session.avatarId,
       avatarUrl: session.avatarUrl,
       status: session.status,
+      pingMs: session.isBot ? 0 : session.pingMs,
       ...(session.isBot ? { isBot: true } : {}),
     };
   }

@@ -655,4 +655,98 @@ describe('WebSocket protocol & multiplayer integration', () => {
 
     p1.client.ws.close();
   });
+
+  it('broadcasts live pingMs in lobby and computes trimmed overall match ping average across matches', async () => {
+    const srv = await createTestServer();
+    cleanups.push(srv.close);
+    const baseUrl = `http://127.0.0.1:${srv.port}`;
+
+    const p1 = await connectClient(srv.port, 'PingOne');
+    const p2 = await connectClient(srv.port, 'PingTwo');
+
+    // Reporting lastPingMs updates lobby listing via lobby.player.upsert
+    p1.client.send({
+      type: 'ping',
+      requestId: 'lobby-ping-1',
+      payload: { clientTime: Date.now(), lastPingMs: 20 },
+    });
+    const lobbyPingUpsert = await p2.client.waitFor(
+      'lobby.player.upsert',
+      (ev) => ev.payload.player.playerId === p1.ready.payload.playerId && ev.payload.player.pingMs === 20,
+    );
+    expect(lobbyPingUpsert.payload.player.pingMs).toBe(20);
+
+    // Match 1: p1 starts with 20ms, receives 40ms during match -> min=20, max=40
+    p1.client.send({
+      type: 'challenge.create',
+      requestId: 'ping-m1-ch',
+      payload: { targetPlayerId: DEMO_PLAYER_ID },
+    });
+    const m1 = await p1.client.waitFor('match.started');
+    p1.client.send({
+      type: 'ping',
+      requestId: 'ping-m1-sample',
+      payload: { clientTime: Date.now(), lastPingMs: 40 },
+    });
+    await p1.client.waitFor('pong', (ev) => ev.requestId === 'ping-m1-sample');
+    p1.client.send({
+      type: 'match.leave',
+      requestId: 'ping-m1-leave',
+      payload: { matchId: m1.payload.matchId },
+    });
+    await p1.client.waitFor(
+      'leaderboard.updated',
+      (ev) => ev.payload.entries.some((e) => e.playerId === p1.ready.payload.playerId && e.matchesPlayed === 1),
+    );
+    p1.client.send({
+      type: 'lobby.join',
+      requestId: 'ping-m1-lobby',
+      payload: {},
+    });
+    await p1.client.waitFor('command.ack', (ev) => ev.requestId === 'ping-m1-lobby');
+
+    // Set current ping to 10ms (lowest outlier), then during Match 2 receive 220ms (highest outlier)
+    p1.client.send({
+      type: 'ping',
+      requestId: 'ping-m2-pre',
+      payload: { clientTime: Date.now(), lastPingMs: 10 },
+    });
+    await p1.client.waitFor('pong', (ev) => ev.requestId === 'ping-m2-pre');
+
+    p1.client.send({
+      type: 'challenge.create',
+      requestId: 'ping-m2-ch',
+      payload: { targetPlayerId: DEMO_PLAYER_ID },
+    });
+    const m2 = await p1.client.waitFor(
+      'match.started',
+      (ev) => ev.payload.matchId !== m1.payload.matchId,
+    );
+    p1.client.send({
+      type: 'ping',
+      requestId: 'ping-m2-spike',
+      payload: { clientTime: Date.now(), lastPingMs: 220 },
+    });
+    await p1.client.waitFor('pong', (ev) => ev.requestId === 'ping-m2-spike');
+    p1.client.send({
+      type: 'match.leave',
+      requestId: 'ping-m2-leave',
+      payload: { matchId: m2.payload.matchId },
+    });
+    await p1.client.waitFor(
+      'leaderboard.updated',
+      (ev) => ev.payload.entries.some((e) => e.playerId === p1.ready.payload.playerId && e.matchesPlayed === 2),
+    );
+
+    // Match 1 [20, 40] + Match 2 [10, 220] -> drop overall min (10) and overall max (220) -> avg(20, 40) = 30
+    const res = await fetch(`${baseUrl}/api/leaderboard`);
+    const data = (await res.json()) as {
+      entries: Array<{ playerId: string; pingMs: number | null }>;
+    };
+    const row = data.entries.find((e) => e.playerId === p1.ready.payload.playerId);
+    expect(row?.pingMs).toBe(30);
+
+    p1.client.ws.close();
+    p2.client.ws.close();
+  });
 });

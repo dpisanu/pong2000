@@ -34,6 +34,12 @@ import {
 } from '../engine/pongEngine.ts';
 import type { PlayerSession, SessionManager } from '../sessions/sessionManager.ts';
 
+export interface MatchPingStats {
+  minPingMs: number | null;
+  maxPingMs: number | null;
+  sampleCount: number;
+}
+
 export interface MatchRecord {
   matchId: string;
   leftPlayerId: string;
@@ -58,6 +64,10 @@ export interface MatchRecord {
   winnerPlayerId: string | null;
   outcomeReason: MatchOutcomeReason | null;
   returnedToLobby: Set<string>;
+  pingStats: {
+    left: MatchPingStats;
+    right: MatchPingStats;
+  };
   loopTimer: ReturnType<typeof setInterval> | null;
   lastStepPerfMs: number;
   createdPerfMs: number;
@@ -244,6 +254,14 @@ export class MatchManager {
       rightPlayer.activeChallengeId = null;
     }
 
+    const initPingStats = (player: PlayerSession): MatchPingStats => {
+      if (player.isBot || player.pingMs === null) {
+        return { minPingMs: null, maxPingMs: null, sampleCount: 0 };
+      }
+      const val = Math.max(0, Math.round(player.pingMs));
+      return { minPingMs: val, maxPingMs: val, sampleCount: 1 };
+    };
+
     const match: MatchRecord = {
       matchId,
       leftPlayerId: leftPlayer.playerId,
@@ -268,6 +286,10 @@ export class MatchManager {
       winnerPlayerId: null,
       outcomeReason: null,
       returnedToLobby: new Set(),
+      pingStats: {
+        left: initPingStats(leftPlayer),
+        right: initPingStats(rightPlayer),
+      },
       loopTimer: null,
       lastStepPerfMs: nowPerf,
       createdPerfMs: nowPerf,
@@ -472,6 +494,38 @@ export class MatchManager {
     }
     match.lastSeq[side] = seq;
     match.inputs[side] = direction;
+  }
+
+  recordPingSample(playerId: string, pingMs: number): void {
+    const session = this.sessions.getById(playerId);
+    if (!session?.activeMatchId || session.isBot) return;
+    const match = this.matches.get(session.activeMatchId);
+    if (!match) return;
+    if (
+      match.phase !== 'COUNTDOWN' &&
+      match.phase !== 'PLAYING' &&
+      match.phase !== 'PAUSED_DISCONNECT'
+    ) {
+      return;
+    }
+
+    const side: PaddleSide | null =
+      match.leftPlayerId === playerId
+        ? 'left'
+        : match.rightPlayerId === playerId
+          ? 'right'
+          : null;
+    if (!side) return;
+
+    const clamped = Math.max(0, Math.round(pingMs));
+    const stats = match.pingStats[side];
+    if (stats.minPingMs === null || clamped < stats.minPingMs) {
+      stats.minPingMs = clamped;
+    }
+    if (stats.maxPingMs === null || clamped > stats.maxPingMs) {
+      stats.maxPingMs = clamped;
+    }
+    stats.sampleCount += 1;
   }
 
   handlePlayerDisconnect(playerId: string): void {

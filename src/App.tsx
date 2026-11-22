@@ -717,6 +717,7 @@ export default function App() {
             activeChallenge={activeChallenge}
             arenaConfig={arenaConfig}
             connected={connectionState === 'CONNECTED'}
+            pingMs={pingMs}
             onChallenge={(targetId) => clientRef.current?.createChallenge(targetId)}
             onAcceptChallenge={(id) => clientRef.current?.acceptChallenge(id)}
             onDeclineChallenge={(id) => clientRef.current?.declineChallenge(id)}

@@ -143,8 +143,12 @@ export class ArenaClient {
           if (sentPerf !== undefined) {
             this.pendingPings.delete(parsed.requestId);
             const rttMs = Math.max(0, Math.round(performance.now() - sentPerf));
+            const wasNull = this.lastPingMs === null;
             this.lastPingMs = rttMs;
             this.handlers.onLatency?.(rttMs);
+            if (wasNull) {
+              this.sendPing();
+            }
           }
           return;
         }

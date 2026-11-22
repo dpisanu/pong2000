@@ -53,6 +53,7 @@ export interface LobbyPlayer {
   avatarId: string;
   avatarUrl: string;
   status: PlayerStatus;
+  pingMs?: number | null;
   isBot?: boolean;
 }
 

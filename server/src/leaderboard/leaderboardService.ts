@@ -6,6 +6,11 @@ import type {
 } from '../../../shared/src/types.ts';
 import type { PlayerSession } from '../sessions/sessionManager.ts';
 
+export interface MatchPingRange {
+  minMs: number;
+  maxMs: number;
+}
+
 interface MutableLeaderboardRecord {
   playerId: string;
   nickname: string;
@@ -17,7 +22,21 @@ interface MutableLeaderboardRecord {
   losses: number;
   forfeits: number;
   longestMatchMs: number;
+  matchPingDatapoints: number[];
   pingMs: number | null;
+}
+
+export function computeTrimmedAveragePing(datapoints: readonly number[]): number | null {
+  if (datapoints.length === 0) return null;
+  const sorted = [...datapoints]
+    .filter((v) => Number.isFinite(v) && v >= 0)
+    .sort((a, b) => a - b);
+  if (sorted.length === 0) return null;
+
+  // Drop the single overall lowest and overall highest outlier when more than 2 datapoints exist
+  const trimmed = sorted.length > 2 ? sorted.slice(1, -1) : sorted;
+  const sum = trimmed.reduce((acc, value) => acc + value, 0);
+  return Math.round(sum / trimmed.length);
 }
 
 export class LeaderboardService {
@@ -37,6 +56,7 @@ export class LeaderboardService {
         losses: 0,
         forfeits: 0,
         longestMatchMs: 0,
+        matchPingDatapoints: [],
         pingMs: 0,
       });
     }
@@ -49,7 +69,9 @@ export class LeaderboardService {
       existing.avatarUrl = session.avatarUrl;
       existing.isBot = Boolean(session.isBot);
       existing.connected = session.connected;
-      existing.pingMs = session.isBot ? 0 : session.pingMs;
+      if (existing.isBot) {
+        existing.pingMs = 0;
+      }
       return;
     }
 
@@ -64,7 +86,8 @@ export class LeaderboardService {
       losses: 0,
       forfeits: 0,
       longestMatchMs: 0,
-      pingMs: session.isBot ? 0 : session.pingMs,
+      matchPingDatapoints: [],
+      pingMs: session.isBot ? 0 : null,
     });
   }
 
@@ -72,13 +95,15 @@ export class LeaderboardService {
     const rec = this.records.get(playerId);
     if (!rec || rec.isBot) return;
     rec.connected = false;
-    rec.pingMs = null;
   }
 
-  updatePing(playerId: string, pingMs: number): void {
-    const rec = this.records.get(playerId);
-    if (!rec || rec.isBot) return;
-    rec.pingMs = Math.max(0, Math.round(pingMs));
+  private appendMatchPingRange(rec: MutableLeaderboardRecord, range?: MatchPingRange | null): void {
+    if (rec.isBot || !range) return;
+    if (!Number.isFinite(range.minMs) || !Number.isFinite(range.maxMs)) return;
+    const minMs = Math.max(0, Math.round(range.minMs));
+    const maxMs = Math.max(minMs, Math.round(range.maxMs));
+    rec.matchPingDatapoints.push(minMs, maxMs);
+    rec.pingMs = computeTrimmedAveragePing(rec.matchPingDatapoints);
   }
 
   recordMatchResult(params: {
@@ -86,6 +111,8 @@ export class LeaderboardService {
     loserId: string;
     durationMs: number;
     reason: MatchOutcomeReason;
+    winnerPingRange?: MatchPingRange | null;
+    loserPingRange?: MatchPingRange | null;
   }): void {
     const duration = Math.max(1, Math.round(params.durationMs));
     this.totalPlayTimeMs += duration;
@@ -99,6 +126,7 @@ export class LeaderboardService {
       if (duration > winner.longestMatchMs) {
         winner.longestMatchMs = duration;
       }
+      this.appendMatchPingRange(winner, params.winnerPingRange);
     }
 
     const loser = this.records.get(params.loserId);
@@ -111,11 +139,24 @@ export class LeaderboardService {
       if (duration > loser.longestMatchMs) {
         loser.longestMatchMs = duration;
       }
+      this.appendMatchPingRange(loser, params.loserPingRange);
     }
   }
 
   getEntries(): LeaderboardEntry[] {
-    const list = Array.from(this.records.values()).map((r) => ({ ...r }));
+    const list: LeaderboardEntry[] = Array.from(this.records.values()).map((r) => ({
+      playerId: r.playerId,
+      nickname: r.nickname,
+      avatarUrl: r.avatarUrl,
+      isBot: r.isBot,
+      connected: r.connected,
+      matchesPlayed: r.matchesPlayed,
+      wins: r.wins,
+      losses: r.losses,
+      forfeits: r.forfeits,
+      longestMatchMs: r.longestMatchMs,
+      pingMs: r.pingMs,
+    }));
     list.sort((a, b) => {
       if (b.wins !== a.wins) return b.wins - a.wins;
       const aWinRate = a.matchesPlayed > 0 ? a.wins / a.matchesPlayed : -1;
