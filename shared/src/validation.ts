@@ -99,6 +99,47 @@ export function validateHostIpInput(raw: string): { ok: true; value: string } | 
   }
 }
 
+export const DemoModesConfigSchema = z
+  .object({
+    wall: z.object({
+      enabled: z.boolean(),
+    }),
+    gap: z.object({
+      enabled: z.boolean(),
+      paddleHeight: z.number().min(0.08).max(0.99),
+    }),
+    honing: z.object({
+      enabled: z.boolean(),
+      paddleHeight: z.number().min(0.08).max(0.99),
+      speed: z.number().min(0.2).max(2.5),
+    }),
+    swipe: z.object({
+      enabled: z.boolean(),
+      paddleHeight: z.number().min(0.08).max(0.99),
+      speed: z.number().min(0.2).max(2.5),
+    }),
+    erratic: z.object({
+      enabled: z.boolean(),
+      paddleHeight: z.number().min(0.08).max(0.99),
+      speed: z.number().min(0.2).max(2.5),
+    }),
+  })
+  .superRefine((modes, ctx) => {
+    const anyEnabled =
+      modes.wall.enabled ||
+      modes.gap.enabled ||
+      modes.honing.enabled ||
+      modes.swipe.enabled ||
+      modes.erratic.enabled;
+    if (!anyEnabled) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['wall', 'enabled'],
+        message: 'At least one Demo User playing mode must be enabled.',
+      });
+    }
+  });
+
 export const ArenaConfigSchema = z
   .object({
     paddleHeight: z.number().min(0.08).max(0.45),
@@ -112,9 +153,7 @@ export const ArenaConfigSchema = z
     resumeCountdownMs: z.number().int().min(500).max(5_000),
     challengeExpiryMs: z.number().int().min(5_000).max(120_000),
     disconnectGraceMs: z.number().int().min(3_000).max(60_000),
-    demoPaddleHeight: z.number().min(0.08).max(1.0),
-    demoAutoMove: z.boolean(),
-    demoPaddleSpeed: z.number().min(0.2).max(2.5),
+    demoModes: DemoModesConfigSchema,
     hostIp: z.string().max(128),
   })
   .superRefine((val, ctx) => {
@@ -123,13 +162,6 @@ export const ArenaConfigSchema = z
         code: z.ZodIssueCode.custom,
         path: ['ballMaxSpeed'],
         message: 'Max ball speed must be greater than or equal to initial ball speed.',
-      });
-    }
-    if (val.demoPaddleHeight >= 1.0 && val.demoAutoMove) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['demoAutoMove'],
-        message: 'Auto movement can only be enabled when Demo User paddle length is below 100%.',
       });
     }
     const hostCheck = validateHostIpInput(val.hostIp);

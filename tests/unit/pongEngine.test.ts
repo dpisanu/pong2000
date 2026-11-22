@@ -9,6 +9,7 @@ import {
 } from '../../shared/src/constants.ts';
 import {
   computeDemoPaddleInput,
+  createInitialDemoAiState,
   createInitialPhysics,
   stepMatchPhysics,
   stepPaddlesOnly,
@@ -127,27 +128,50 @@ describe('pongEngine physics', () => {
     expect(state.ballVy).toBeGreaterThan(0);
   });
 
-  it('computes Demo auto-movement input toward ballY and applies per-side paddle speed', () => {
+  it('computes Demo inputs for Wall, Gap, Honing, Swipe, and Erratic modes', () => {
     const state = createInitialPhysics('right');
     state.rightY = 0.5;
     state.ballY = 0.25;
-    expect(computeDemoPaddleInput(state, 'right')).toBe(-1);
 
+    // Wall & Gap are stationary
+    expect(computeDemoPaddleInput(state, 'right', 'wall', undefined, 1.0)).toBe(0);
+    expect(computeDemoPaddleInput(state, 'right', 'gap', undefined, 0.9)).toBe(0);
+
+    // Honing tracks ballY
+    expect(computeDemoPaddleInput(state, 'right', 'honing', undefined, 0.2)).toBe(-1);
     state.ballY = 0.8;
-    expect(computeDemoPaddleInput(state, 'right')).toBe(1);
-
+    expect(computeDemoPaddleInput(state, 'right', 'honing', undefined, 0.2)).toBe(1);
     state.ballY = 0.505;
-    expect(computeDemoPaddleInput(state, 'right')).toBe(0);
+    expect(computeDemoPaddleInput(state, 'right', 'honing', undefined, 0.2)).toBe(0);
 
-    const beforeLeft = state.leftY;
-    const beforeRight = state.rightY;
+    // Swipe bounces between top and bottom limits
+    const swipeAi = createInitialDemoAiState(() => 0.9); // swipeDir = 1
+    expect(computeDemoPaddleInput(state, 'right', 'swipe', swipeAi, 0.2)).toBe(1);
+    state.rightY = 0.899;
+    expect(computeDemoPaddleInput(state, 'right', 'swipe', swipeAi, 0.2)).toBe(-1);
+    state.rightY = 0.101;
+    expect(computeDemoPaddleInput(state, 'right', 'swipe', swipeAi, 0.2)).toBe(1);
+
+    // Erratic produces valid directional bursts without needing edge hits
+    const erraticAi = createInitialDemoAiState(() => 0.1);
+    state.rightY = 0.5;
+    const seq = [0.1, 0.5, 0.6, 0.2, 0.85, 0.3];
+    let idx = 0;
+    const rng = () => seq[idx++ % seq.length];
+    const dir1 = computeDemoPaddleInput(state, 'right', 'erratic', erraticAi, 0.2, rng);
+    expect([-1, 0, 1]).toContain(dir1);
+    expect(erraticAi.erraticTicksRemaining).toBeGreaterThanOrEqual(7);
+
+    // Per-side paddle speeds step independently
+    state.leftY = 0.5;
+    state.rightY = 0.5;
     stepPaddlesOnly(
       state,
       { left: 1, right: 1 },
       0.2,
       { leftPaddleSpeed: 0.5, rightPaddleSpeed: 1.5, rightPaddleHeight: 0.25 },
     );
-    expect(state.leftY - beforeLeft).toBeCloseTo(0.1, 4);
-    expect(state.rightY - beforeRight).toBeCloseTo(0.3, 4);
+    expect(state.leftY - 0.5).toBeCloseTo(0.1, 4);
+    expect(state.rightY - 0.5).toBeCloseTo(0.3, 4);
   });
 });

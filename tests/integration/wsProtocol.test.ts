@@ -28,7 +28,7 @@ async function createTestServer(opts?: {
   challengeExpiryMs?: number;
   disconnectGraceMs?: number;
 }) {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'lan-pong-int-'));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'pong2000-int-'));
   const avatarService = new AvatarService(dir);
   await avatarService.init();
 
@@ -573,7 +573,7 @@ describe('WebSocket protocol & multiplayer integration', () => {
     p1.client.ws.close();
   });
 
-  it('enforces Demo User 100% auto-move restriction in /api/admin/config and applies custom Demo rules to matches', async () => {
+  it('validates Demo User modes in /api/admin/config and applies selected Demo mode rules to matches', async () => {
     const srv = await createTestServer();
     cleanups.push(srv.close);
     const baseUrl = `http://127.0.0.1:${srv.port}`;
@@ -585,7 +585,7 @@ describe('WebSocket protocol & multiplayer integration', () => {
     });
     const { token } = (await setupRes.json()) as { token: string };
 
-    // Reject auto-move when Demo paddle length is 1.0 (100%)
+    // Reject disabling all five Demo User modes
     const rejectedRes = await fetch(`${baseUrl}/api/admin/config`, {
       method: 'PUT',
       headers: {
@@ -593,14 +593,18 @@ describe('WebSocket protocol & multiplayer integration', () => {
         Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({
-        demoPaddleHeight: 1.0,
-        demoAutoMove: true,
-        demoPaddleSpeed: 1.2,
+        demoModes: {
+          wall: { enabled: false },
+          gap: { enabled: false },
+          honing: { enabled: false },
+          swipe: { enabled: false },
+          erratic: { enabled: false },
+        },
       }),
     });
     expect(rejectedRes.status).toBe(400);
 
-    // Accept smaller Demo paddle with auto-move enabled and faster countdown so PLAYING ticks quickly
+    // Enable only Swipe mode with custom length & speed so Demo match deterministically picks Swipe
     const acceptedRes = await fetch(`${baseUrl}/api/admin/config`, {
       method: 'PUT',
       headers: {
@@ -608,9 +612,13 @@ describe('WebSocket protocol & multiplayer integration', () => {
         Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({
-        demoPaddleHeight: 0.25,
-        demoAutoMove: true,
-        demoPaddleSpeed: 1.35,
+        demoModes: {
+          wall: { enabled: false },
+          gap: { enabled: false },
+          honing: { enabled: false },
+          swipe: { enabled: true, paddleHeight: 0.25, speed: 1.35 },
+          erratic: { enabled: false },
+        },
         initialCountdownMs: 1000,
       }),
     });
@@ -625,10 +633,10 @@ describe('WebSocket protocol & multiplayer integration', () => {
 
     const started = await p1.client.waitFor('match.started');
     expect(started.payload.rules?.rightPaddleHeight).toBe(0.25);
-    expect(started.payload.rules?.demoAutoMove).toBe(true);
+    expect(started.payload.rules?.demoMode).toBe('swipe');
     expect(started.payload.rules?.demoPaddleSpeed).toBe(1.35);
 
-    // Wait for PLAYING snapshots and verify Demo paddle moves off 0.5 toward the served ball
+    // Wait for PLAYING snapshots and verify Demo paddle sweeps off 0.5
     const movedSnap = await p1.client.waitFor(
       'match.snapshot',
       (ev) => ev.payload.phase === 'PLAYING' && Math.abs(ev.payload.paddles.rightY - 0.5) > 0.005,

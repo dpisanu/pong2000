@@ -111,6 +111,33 @@ export interface MatchRematchState {
   status: 'NONE' | 'PENDING' | 'ACCEPTED' | 'CANCELLED';
 }
 
+export type DemoBehaviorMode = 'wall' | 'gap' | 'honing' | 'swipe' | 'erratic';
+
+export interface DemoModesConfig {
+  wall: {
+    enabled: boolean;
+  };
+  gap: {
+    enabled: boolean;
+    paddleHeight: number;
+  };
+  honing: {
+    enabled: boolean;
+    paddleHeight: number;
+    speed: number;
+  };
+  swipe: {
+    enabled: boolean;
+    paddleHeight: number;
+    speed: number;
+  };
+  erratic: {
+    enabled: boolean;
+    paddleHeight: number;
+    speed: number;
+  };
+}
+
 export interface ArenaConfig {
   paddleHeight: number;
   paddleSpeed: number;
@@ -123,9 +150,7 @@ export interface ArenaConfig {
   resumeCountdownMs: number;
   challengeExpiryMs: number;
   disconnectGraceMs: number;
-  demoPaddleHeight: number;
-  demoAutoMove: boolean;
-  demoPaddleSpeed: number;
+  demoModes: DemoModesConfig;
   hostIp: string;
 }
 
@@ -145,7 +170,7 @@ export interface MatchRulesConfig {
   resumeCountdownMs: number;
   isDemoMatch: boolean;
   demoSide: PaddleSide | null;
-  demoAutoMove: boolean;
+  demoMode: DemoBehaviorMode | null;
   demoPaddleSpeed: number;
 }
 

@@ -5,9 +5,18 @@ import {
   BALL_MAX_SPEED,
   BALL_SPEED_INCREMENT,
   CHALLENGE_EXPIRY_MS,
-  DEMO_AUTO_MOVE,
-  DEMO_PADDLE_HEIGHT,
-  DEMO_PADDLE_SPEED,
+  DEMO_ERRATIC_ENABLED,
+  DEMO_ERRATIC_PADDLE_HEIGHT,
+  DEMO_ERRATIC_SPEED,
+  DEMO_GAP_ENABLED,
+  DEMO_GAP_PADDLE_HEIGHT,
+  DEMO_HONING_ENABLED,
+  DEMO_HONING_PADDLE_HEIGHT,
+  DEMO_HONING_SPEED,
+  DEMO_SWIPE_ENABLED,
+  DEMO_SWIPE_PADDLE_HEIGHT,
+  DEMO_SWIPE_SPEED,
+  DEMO_WALL_ENABLED,
   DISCONNECT_GRACE_MS,
   INITIAL_COUNTDOWN_MS,
   PADDLE_HEIGHT,
@@ -54,9 +63,25 @@ const DEFAULT_PUBLIC_CONFIG: PublicArenaConfig = {
   resumeCountdownMs: RESUME_COUNTDOWN_MS,
   challengeExpiryMs: CHALLENGE_EXPIRY_MS,
   disconnectGraceMs: DISCONNECT_GRACE_MS,
-  demoPaddleHeight: DEMO_PADDLE_HEIGHT,
-  demoAutoMove: DEMO_AUTO_MOVE,
-  demoPaddleSpeed: DEMO_PADDLE_SPEED,
+  demoModes: {
+    wall: { enabled: DEMO_WALL_ENABLED },
+    gap: { enabled: DEMO_GAP_ENABLED, paddleHeight: DEMO_GAP_PADDLE_HEIGHT },
+    honing: {
+      enabled: DEMO_HONING_ENABLED,
+      paddleHeight: DEMO_HONING_PADDLE_HEIGHT,
+      speed: DEMO_HONING_SPEED,
+    },
+    swipe: {
+      enabled: DEMO_SWIPE_ENABLED,
+      paddleHeight: DEMO_SWIPE_PADDLE_HEIGHT,
+      speed: DEMO_SWIPE_SPEED,
+    },
+    erratic: {
+      enabled: DEMO_ERRATIC_ENABLED,
+      paddleHeight: DEMO_ERRATIC_PADDLE_HEIGHT,
+      speed: DEMO_ERRATIC_SPEED,
+    },
+  },
 };
 
 type AppRoute = '/' | '/leaderboard' | '/admin';
@@ -508,7 +533,7 @@ export default function App() {
             onClick={() => navigateTo('/')}
             className="font-display text-xl sm:text-2xl font-bold tracking-tight text-slate-100 hover:text-white transition-colors whitespace-nowrap shrink-0 text-left"
           >
-            LAN Pong Arena
+            Pong2000 Arena
           </button>
 
           <nav className="flex items-center gap-3 sm:gap-6 text-sm font-medium text-slate-300">
@@ -601,7 +626,7 @@ export default function App() {
               onClick={() => setShareOpen(true)}
               className="px-4 py-2 text-xs font-semibold text-slate-950 bg-emerald-500 hover:bg-emerald-400 rounded-lg transition-colors whitespace-nowrap shrink-0"
             >
-              Share LAN URL
+              Share Game URL
             </button>
           </div>
         </div>

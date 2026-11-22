@@ -90,16 +90,16 @@ export function LanShareModal({ onClose, onOpenAdmin }: LanShareModalProps) {
         <div className="flex items-start justify-between gap-4 pb-4 border-b border-white/10">
           <div>
             <h2 id="lan-share-heading" className="font-display text-2xl font-bold text-slate-100">
-              Invite LAN Players
+              Invite Players
             </h2>
             <p className="mt-1 text-sm text-slate-400">
-              Open this address in a desktop browser on the same local network.
+              Open this address in a desktop browser on the same network.
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close LAN share dialog"
+            aria-label="Close game share dialog"
             className="p-2 text-slate-400 hover:text-slate-100 rounded-lg hover:bg-white/5 transition-colors"
           >
             <X className="w-5 h-5" />
@@ -131,7 +131,7 @@ export function LanShareModal({ onClose, onOpenAdmin }: LanShareModalProps) {
               type="text"
               readOnly
               value={selectedUrl}
-              aria-label="LAN server URL"
+              aria-label="Game server URL"
               className="flex-1 bg-transparent px-2 text-sm font-mono-tabular text-slate-100 focus:outline-none"
             />
             <button
@@ -147,8 +147,8 @@ export function LanShareModal({ onClose, onOpenAdmin }: LanShareModalProps) {
           {!ipDetected && (
             <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-400">
               <span>
-                No external LAN IP detected automatically. Configure the Host IP in Admin if sharing
-                from a container.
+                No external host IP detected automatically. Configure the Host IP in Admin if
+                sharing from a container.
               </span>
               {onOpenAdmin && (
                 <button
@@ -175,7 +175,7 @@ export function LanShareModal({ onClose, onOpenAdmin }: LanShareModalProps) {
                 className="w-40 h-40 rounded-lg"
               />
               <span className="mt-2 text-xs text-slate-400">
-                Generated offline for local network discovery
+                Generated for network discovery
               </span>
             </div>
           )}

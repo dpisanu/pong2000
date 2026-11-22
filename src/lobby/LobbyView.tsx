@@ -163,22 +163,32 @@ export function LobbyView({
                           <span className={`font-medium ${statusMeta.colorClass}`}>
                             {statusMeta.label}
                           </span>
-                          {player.isBot && (
-                            <>
-                              <span className="text-slate-500" aria-hidden="true">
-                                ·
-                              </span>
-                              <span className="text-slate-400">
-                                {arenaConfig.demoPaddleHeight >= 1.0
-                                  ? 'Demo mode · 100% full-height paddle · Auto-accepts'
-                                  : `Demo mode · ${Math.round(arenaConfig.demoPaddleHeight * 100)}% paddle · ${
-                                      arenaConfig.demoAutoMove
-                                        ? `Auto-move (${arenaConfig.demoPaddleSpeed})`
-                                        : 'Stationary'
-                                    } · Auto-accepts`}
-                              </span>
-                            </>
-                          )}
+                          {player.isBot && (() => {
+                            const activeLabels: string[] = [];
+                            if (arenaConfig.demoModes.wall.enabled) activeLabels.push('Wall');
+                            if (arenaConfig.demoModes.gap.enabled) {
+                              activeLabels.push(
+                                `Gap (${Math.round(arenaConfig.demoModes.gap.paddleHeight * 100)}%)`,
+                              );
+                            }
+                            if (arenaConfig.demoModes.honing.enabled) activeLabels.push('Honing');
+                            if (arenaConfig.demoModes.swipe.enabled) activeLabels.push('Swipe');
+                            if (arenaConfig.demoModes.erratic.enabled) activeLabels.push('Erratic');
+                            const modeSummary =
+                              activeLabels.length > 1
+                                ? `Random mode (${activeLabels.join(', ')})`
+                                : activeLabels[0] ?? 'Wall';
+                            return (
+                              <>
+                                <span className="text-slate-500" aria-hidden="true">
+                                  ·
+                                </span>
+                                <span className="text-slate-400">
+                                  Demo mode · {modeSummary} · Auto-accepts
+                                </span>
+                              </>
+                            );
+                          })()}
                         </div>
                       </div>
                     </div>
@@ -210,7 +220,7 @@ export function LobbyView({
                 className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold text-slate-950 bg-emerald-500 hover:bg-emerald-400 rounded-lg transition-colors whitespace-nowrap shrink-0"
               >
                 <UserPlus className="w-3.5 h-3.5" />
-                Show LAN Invite URL
+                Show Game Invite URL
               </button>
             </div>
           )}

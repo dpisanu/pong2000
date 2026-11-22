@@ -11,9 +11,15 @@ import {
   PADDLE_SPEED,
   PADDLE_WIDTH,
 } from '../../../shared/src/constants.ts';
-import type { PaddleSide } from '../../../shared/src/types.ts';
+import type { DemoBehaviorMode, PaddleSide } from '../../../shared/src/types.ts';
 
 export type PaddleInputDir = -1 | 0 | 1;
+
+export interface DemoAiState {
+  swipeDir: -1 | 1;
+  erraticDir: PaddleInputDir;
+  erraticTicksRemaining: number;
+}
 
 export interface PhysicsState {
   ballX: number;
@@ -79,14 +85,72 @@ export function resetBallForServe(
   state.ballVy = Math.sin(angle) * ballInitialSpeed;
 }
 
+export function createInitialDemoAiState(rng: () => number = Math.random): DemoAiState {
+  return {
+    swipeDir: rng() < 0.5 ? -1 : 1,
+    erraticDir: 0,
+    erraticTicksRemaining: 0,
+  };
+}
+
 export function computeDemoPaddleInput(
   state: PhysicsState,
   demoSide: PaddleSide,
+  mode: DemoBehaviorMode = 'honing',
+  aiState?: DemoAiState,
+  paddleHeight: number = PADDLE_HEIGHT,
+  rng: () => number = Math.random,
 ): PaddleInputDir {
+  if (mode === 'wall' || mode === 'gap' || paddleHeight >= 1.0) {
+    return 0;
+  }
+
   const paddleY = demoSide === 'left' ? state.leftY : state.rightY;
-  const diff = state.ballY - paddleY;
-  if (Math.abs(diff) <= 0.012) return 0;
-  return diff < 0 ? -1 : 1;
+
+  if (mode === 'honing') {
+    const diff = state.ballY - paddleY;
+    if (Math.abs(diff) <= 0.012) return 0;
+    return diff < 0 ? -1 : 1;
+  }
+
+  const minY = paddleHeight / 2;
+  const maxY = 1 - paddleHeight / 2;
+
+  if (mode === 'swipe') {
+    if (aiState) {
+      if (paddleY <= minY + 0.002) {
+        aiState.swipeDir = 1;
+      } else if (paddleY >= maxY - 0.002) {
+        aiState.swipeDir = -1;
+      }
+      return aiState.swipeDir;
+    }
+    return paddleY >= maxY - 0.002 ? -1 : 1;
+  }
+
+  // mode === 'erratic': randomized directional bursts simulating button mashing
+  if (!aiState) {
+    const r = rng();
+    return r < 0.45 ? -1 : r < 0.9 ? 1 : 0;
+  }
+
+  if (paddleY <= minY + 0.002 && aiState.erraticDir === -1) {
+    aiState.erraticDir = rng() < 0.8 ? 1 : 0;
+    aiState.erraticTicksRemaining = Math.floor(8 + rng() * 24);
+  } else if (paddleY >= maxY - 0.002 && aiState.erraticDir === 1) {
+    aiState.erraticDir = rng() < 0.8 ? -1 : 0;
+    aiState.erraticTicksRemaining = Math.floor(8 + rng() * 24);
+  } else if (aiState.erraticTicksRemaining <= 0) {
+    const r = rng();
+    let nextDir: PaddleInputDir = r < 0.42 ? -1 : r < 0.84 ? 1 : 0;
+    if (paddleY <= minY + 0.01 && nextDir === -1) nextDir = 1;
+    if (paddleY >= maxY - 0.01 && nextDir === 1) nextDir = -1;
+    aiState.erraticDir = nextDir;
+    aiState.erraticTicksRemaining = Math.floor(8 + rng() * 30);
+  }
+
+  aiState.erraticTicksRemaining -= 1;
+  return aiState.erraticDir;
 }
 
 export function stepPaddlesOnly(

@@ -46,7 +46,7 @@ describe('AvatarService', () => {
   });
 
   it('re-encodes valid PNG uploads to bounded 256x256 WebP and enforces per-session cap', async () => {
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'lan-pong-avatars-'));
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'pong2000-avatars-'));
     tempDirs.push(dir);
     const service = new AvatarService(dir);
     await service.init();
@@ -80,7 +80,7 @@ describe('AvatarService', () => {
   });
 
   it('rejects SVG payloads and oversized buffers', async () => {
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'lan-pong-avatars-'));
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'pong2000-avatars-'));
     tempDirs.push(dir);
     const service = new AvatarService(dir);
     await service.init();
@@ -145,32 +145,57 @@ describe('ServerConfigService & ArenaConfigSchema', () => {
     expect(demoRules.isDemoMatch).toBe(true);
     expect(demoRules.leftPaddleHeight).toBe(0.25);
     expect(demoRules.rightPaddleHeight).toBe(1.0);
-    expect(demoRules.demoAutoMove).toBe(false);
+    expect(demoRules.demoMode).toBe('wall');
+    expect(demoRules.demoPaddleSpeed).toBe(0);
     expect(demoRules.winScore).toBe(7);
 
-    // Rejects auto-movement when Demo paddle length is 100% (1.0)
-    const invalidDemo = svc.updateConfig({ demoPaddleHeight: 1.0, demoAutoMove: true });
-    expect(invalidDemo.ok).toBe(false);
-
-    // Accepts auto-movement + custom speed when Demo paddle length < 100%
-    const validDemo = svc.updateConfig({
-      demoPaddleHeight: 0.3,
-      demoAutoMove: true,
-      demoPaddleSpeed: 1.15,
+    // Rejects disabling all five Demo User modes
+    const allDisabled = svc.updateConfig({
+      demoModes: {
+        wall: { enabled: false },
+        gap: { enabled: false },
+        honing: { enabled: false },
+        swipe: { enabled: false },
+        erratic: { enabled: false },
+      },
     });
-    expect(validDemo.ok).toBe(true);
-    const activeDemoRules = svc.buildMatchRules('right');
-    expect(activeDemoRules.rightPaddleHeight).toBe(0.3);
-    expect(activeDemoRules.demoAutoMove).toBe(true);
-    expect(activeDemoRules.demoPaddleSpeed).toBe(1.15);
+    expect(allDisabled.ok).toBe(false);
 
-    // Returning Demo paddle length to 1.0 automatically disables demoAutoMove
-    const backToFull = svc.updateConfig({ demoPaddleHeight: 1.0 });
-    expect(backToFull.ok).toBe(true);
-    expect(svc.getConfig().demoAutoMove).toBe(false);
+    // Enable Gap (0.90), Honing (0.25, 1.15), and Swipe (0.20, 0.85) with Wall disabled
+    const multiDemo = svc.updateConfig({
+      demoModes: {
+        wall: { enabled: false },
+        gap: { enabled: true, paddleHeight: 0.9 },
+        honing: { enabled: true, paddleHeight: 0.25, speed: 1.15 },
+        swipe: { enabled: true, paddleHeight: 0.2, speed: 0.85 },
+      },
+    });
+    expect(multiDemo.ok).toBe(true);
+
+    // Deterministic RNG selects across enabled modes in order [gap, honing, swipe]
+    const gapPick = svc.buildMatchRules('right', () => 0.05);
+    expect(gapPick.demoMode).toBe('gap');
+    expect(gapPick.rightPaddleHeight).toBe(0.9);
+    expect(gapPick.demoPaddleSpeed).toBe(0);
+
+    const honingPick = svc.buildMatchRules('right', () => 0.5);
+    expect(honingPick.demoMode).toBe('honing');
+    expect(honingPick.rightPaddleHeight).toBe(0.25);
+    expect(honingPick.demoPaddleSpeed).toBe(1.15);
+
+    const swipePick = svc.buildMatchRules('right', () => 0.9);
+    expect(swipePick.demoMode).toBe('swipe');
+    expect(swipePick.rightPaddleHeight).toBe(0.2);
+    expect(swipePick.demoPaddleSpeed).toBe(0.85);
 
     const reset = svc.resetConfig();
     expect(reset.hostIp).toBe('192.168.1.50');
+    expect(reset.demoModes.wall.enabled).toBe(true);
+    expect(reset.demoModes.gap.paddleHeight).toBe(0.9);
+    expect(reset.demoModes.honing.paddleHeight).toBe(0.2);
+    expect(reset.demoModes.honing.speed).toBe(0.7);
+    expect(reset.demoModes.erratic.paddleHeight).toBe(0.3);
+    expect(reset.demoModes.erratic.speed).toBe(1.0);
     expect(ArenaConfigSchema.safeParse(reset).success).toBe(true);
   });
 });

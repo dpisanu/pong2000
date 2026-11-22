@@ -25,6 +25,21 @@ interface AdminConfigResponse {
   };
 }
 
+interface DemoModeFormValues {
+  wallEnabled: boolean;
+  gapEnabled: boolean;
+  gapPaddleHeight: string;
+  honingEnabled: boolean;
+  honingPaddleHeight: string;
+  honingSpeed: string;
+  swipeEnabled: boolean;
+  swipePaddleHeight: string;
+  swipeSpeed: string;
+  erraticEnabled: boolean;
+  erraticPaddleHeight: string;
+  erraticSpeed: string;
+}
+
 interface FormValues {
   hostIp: string;
   paddleHeight: string;
@@ -38,9 +53,7 @@ interface FormValues {
   resumeCountdownMs: string;
   challengeExpiryMs: string;
   disconnectGraceMs: string;
-  demoPaddleHeight: string;
-  demoAutoMove: boolean;
-  demoPaddleSpeed: string;
+  demo: DemoModeFormValues;
 }
 
 function toFormValues(cfg: ArenaConfig): FormValues {
@@ -57,9 +70,20 @@ function toFormValues(cfg: ArenaConfig): FormValues {
     resumeCountdownMs: String(cfg.resumeCountdownMs),
     challengeExpiryMs: String(cfg.challengeExpiryMs),
     disconnectGraceMs: String(cfg.disconnectGraceMs),
-    demoPaddleHeight: String(cfg.demoPaddleHeight),
-    demoAutoMove: cfg.demoPaddleHeight < 1.0 && cfg.demoAutoMove,
-    demoPaddleSpeed: String(cfg.demoPaddleSpeed),
+    demo: {
+      wallEnabled: cfg.demoModes.wall.enabled,
+      gapEnabled: cfg.demoModes.gap.enabled,
+      gapPaddleHeight: String(cfg.demoModes.gap.paddleHeight),
+      honingEnabled: cfg.demoModes.honing.enabled,
+      honingPaddleHeight: String(cfg.demoModes.honing.paddleHeight),
+      honingSpeed: String(cfg.demoModes.honing.speed),
+      swipeEnabled: cfg.demoModes.swipe.enabled,
+      swipePaddleHeight: String(cfg.demoModes.swipe.paddleHeight),
+      swipeSpeed: String(cfg.demoModes.swipe.speed),
+      erraticEnabled: cfg.demoModes.erratic.enabled,
+      erraticPaddleHeight: String(cfg.demoModes.erratic.paddleHeight),
+      erraticSpeed: String(cfg.demoModes.erratic.speed),
+    },
   };
 }
 
@@ -211,8 +235,48 @@ export function AdminView({ onBackToArena, onConfigSaved }: AdminViewProps) {
     if (!adminToken || !form) return;
     setSaveFeedback(null);
 
-    const demoPaddleHeightNum = Number(form.demoPaddleHeight);
-    const demoAutoMoveAllowed = Number.isFinite(demoPaddleHeightNum) && demoPaddleHeightNum < 1.0;
+    const numericChecks: Array<[string, number]> = [
+      ['paddleHeight', Number(form.paddleHeight)],
+      ['paddleSpeed', Number(form.paddleSpeed)],
+      ['ballInitialSpeed', Number(form.ballInitialSpeed)],
+      ['ballSpeedIncrement', Number(form.ballSpeedIncrement)],
+      ['ballMaxSpeed', Number(form.ballMaxSpeed)],
+      ['winScore', Math.round(Number(form.winScore))],
+      ['initialCountdownMs', Math.round(Number(form.initialCountdownMs))],
+      ['pointCountdownMs', Math.round(Number(form.pointCountdownMs))],
+      ['resumeCountdownMs', Math.round(Number(form.resumeCountdownMs))],
+      ['challengeExpiryMs', Math.round(Number(form.challengeExpiryMs))],
+      ['disconnectGraceMs', Math.round(Number(form.disconnectGraceMs))],
+      ['gapPaddleHeight', Number(form.demo.gapPaddleHeight)],
+      ['honingPaddleHeight', Number(form.demo.honingPaddleHeight)],
+      ['honingSpeed', Number(form.demo.honingSpeed)],
+      ['swipePaddleHeight', Number(form.demo.swipePaddleHeight)],
+      ['swipeSpeed', Number(form.demo.swipeSpeed)],
+      ['erraticPaddleHeight', Number(form.demo.erraticPaddleHeight)],
+      ['erraticSpeed', Number(form.demo.erraticSpeed)],
+    ];
+
+    for (const [key, val] of numericChecks) {
+      if (!Number.isFinite(val)) {
+        setSaveFeedback({ level: 'err', text: `Invalid numeric value for ${key}.` });
+        return;
+      }
+    }
+
+    const anyDemoModeEnabled =
+      form.demo.wallEnabled ||
+      form.demo.gapEnabled ||
+      form.demo.honingEnabled ||
+      form.demo.swipeEnabled ||
+      form.demo.erraticEnabled;
+
+    if (!anyDemoModeEnabled) {
+      setSaveFeedback({
+        level: 'err',
+        text: 'At least one Demo User playing mode must be enabled.',
+      });
+      return;
+    }
 
     const payload = {
       hostIp: form.hostIp.trim(),
@@ -227,17 +291,29 @@ export function AdminView({ onBackToArena, onConfigSaved }: AdminViewProps) {
       resumeCountdownMs: Math.round(Number(form.resumeCountdownMs)),
       challengeExpiryMs: Math.round(Number(form.challengeExpiryMs)),
       disconnectGraceMs: Math.round(Number(form.disconnectGraceMs)),
-      demoPaddleHeight: demoPaddleHeightNum,
-      demoAutoMove: demoAutoMoveAllowed ? form.demoAutoMove : false,
-      demoPaddleSpeed: Number(form.demoPaddleSpeed),
+      demoModes: {
+        wall: { enabled: form.demo.wallEnabled },
+        gap: {
+          enabled: form.demo.gapEnabled,
+          paddleHeight: Number(form.demo.gapPaddleHeight),
+        },
+        honing: {
+          enabled: form.demo.honingEnabled,
+          paddleHeight: Number(form.demo.honingPaddleHeight),
+          speed: Number(form.demo.honingSpeed),
+        },
+        swipe: {
+          enabled: form.demo.swipeEnabled,
+          paddleHeight: Number(form.demo.swipePaddleHeight),
+          speed: Number(form.demo.swipeSpeed),
+        },
+        erratic: {
+          enabled: form.demo.erraticEnabled,
+          paddleHeight: Number(form.demo.erraticPaddleHeight),
+          speed: Number(form.demo.erraticSpeed),
+        },
+      },
     };
-
-    for (const [key, val] of Object.entries(payload)) {
-      if (key !== 'hostIp' && key !== 'demoAutoMove' && !Number.isFinite(val)) {
-        setSaveFeedback({ level: 'err', text: `Invalid numeric value for ${key}.` });
-        return;
-      }
-    }
 
     setSaving(true);
     try {
@@ -305,27 +381,26 @@ export function AdminView({ onBackToArena, onConfigSaved }: AdminViewProps) {
     }
   };
 
-  const updateField = (key: Exclude<keyof FormValues, 'demoAutoMove'>, value: string) => {
-    setForm((prev) => {
-      if (!prev) return prev;
-      if (key === 'demoPaddleHeight') {
-        const parsed = Number(value);
-        const isFullHeight = Number.isFinite(parsed) && parsed >= 1.0;
-        return {
-          ...prev,
-          demoPaddleHeight: value,
-          demoAutoMove: isFullHeight ? false : prev.demoAutoMove,
-        };
-      }
-      return { ...prev, [key]: value };
-    });
+  const updateField = (key: Exclude<keyof FormValues, 'demo'>, value: string) => {
+    setForm((prev) => (prev ? { ...prev, [key]: value } : prev));
   };
 
-  const demoHeightVal = form ? Number(form.demoPaddleHeight) : 1.0;
-  const demoIsFullHeight = !Number.isFinite(demoHeightVal) || demoHeightVal >= 1.0;
-  const demoPercent = Number.isFinite(demoHeightVal)
-    ? Math.max(0, Math.min(100, Math.round(demoHeightVal * 100)))
-    : 100;
+  const updateDemoField = <K extends keyof DemoModeFormValues>(
+    key: K,
+    value: DemoModeFormValues[K],
+  ) => {
+    setForm((prev) => (prev ? { ...prev, demo: { ...prev.demo, [key]: value } } : prev));
+  };
+
+  const enabledDemoModeCount = form
+    ? [
+        form.demo.wallEnabled,
+        form.demo.gapEnabled,
+        form.demo.honingEnabled,
+        form.demo.swipeEnabled,
+        form.demo.erraticEnabled,
+      ].filter(Boolean).length
+    : 1;
 
   return (
     <main className="max-w-5xl mx-auto px-6 py-8">
@@ -769,97 +844,385 @@ export function AdminView({ onBackToArena, onConfigSaved }: AdminViewProps) {
 
           {/* Demo User Configuration */}
           <section className="bg-[#151e29] border border-white/10 rounded-xl p-6">
-            <h2 className="font-display text-xl font-bold text-slate-100">Demo User</h2>
-            <p className="mt-1 text-xs text-slate-400">
-              Configure the virtual Demo Player practice opponent. Auto movement is available only
-              when paddle length is less than <span className="font-mono-tabular">100%</span> (
-              <span className="font-mono-tabular">1.0</span>).
-            </p>
-
-            <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 items-start">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
               <div>
-                <div className="flex items-center justify-between gap-2 mb-1.5">
-                  <label
-                    htmlFor="cfg-demo-paddle-height"
-                    className="block text-xs font-medium text-slate-300"
-                  >
-                    Demo Paddle Length (0.08 – 1.00)
-                  </label>
-                  <span className="text-xs font-mono-tabular text-slate-400">{demoPercent}%</span>
-                </div>
-                <input
-                  id="cfg-demo-paddle-height"
-                  type="number"
-                  step="0.01"
-                  min="0.08"
-                  max="1.0"
-                  value={form.demoPaddleHeight}
-                  onChange={(e) => updateField('demoPaddleHeight', e.target.value)}
-                  className="w-full px-3 py-2 text-sm font-mono-tabular text-slate-100 bg-[#0d131a] border border-white/15 rounded-lg focus:outline-none focus:border-emerald-500"
-                  required
-                />
+                <h2 className="font-display text-xl font-bold text-slate-100">Demo User</h2>
+                <p className="mt-1 text-xs text-slate-400">
+                  Enable one or more playing behaviors. When a player challenges Demo Player, one
+                  enabled behavior is selected at random for that match.
+                </p>
+                <p className="mt-1 text-xs text-slate-400">
+                  Paddle Length (<span className="font-mono-tabular">0.08 – 0.99</span>)
+                  <span className="mx-1.5 text-slate-500" aria-hidden="true">
+                    ·
+                  </span>
+                  Auto Move Speed (<span className="font-mono-tabular">0.20 – 2.50</span>)
+                </p>
               </div>
+              <span className="text-xs font-mono-tabular text-slate-400">
+                {enabledDemoModeCount} of 5 modes active
+              </span>
+            </div>
 
-              <div>
-                <span className="block text-xs font-medium text-slate-300 mb-1.5">
-                  Auto Movement
-                </span>
-                <div className="flex items-center gap-1 p-1 bg-[#0d131a] border border-white/15 rounded-lg">
-                  <button
-                    type="button"
-                    disabled={demoIsFullHeight}
-                    onClick={() =>
-                      setForm((prev) => (prev ? { ...prev, demoAutoMove: true } : prev))
-                    }
-                    className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
-                      !demoIsFullHeight && form.demoAutoMove
-                        ? 'bg-emerald-500 text-slate-950 font-semibold'
-                        : 'text-slate-300 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed'
-                    }`}
-                  >
-                    On
-                  </button>
-                  <button
-                    type="button"
-                    disabled={demoIsFullHeight}
-                    onClick={() =>
-                      setForm((prev) => (prev ? { ...prev, demoAutoMove: false } : prev))
-                    }
-                    className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
-                      demoIsFullHeight || !form.demoAutoMove
-                        ? 'bg-[#1e2a38] text-slate-100'
-                        : 'text-slate-400 hover:text-slate-200 disabled:opacity-40'
-                    }`}
-                  >
-                    Off
-                  </button>
-                </div>
-                {demoIsFullHeight && (
-                  <p className="mt-1.5 text-xs text-slate-400">
-                    Disabled while paddle length is 100%.
+            <div className="mt-5 divide-y divide-white/10 border-t border-white/10">
+              {/* Wall Mode */}
+              <div className="py-4 grid grid-cols-1 lg:grid-cols-12 gap-4 items-center">
+                <div className="lg:col-span-5">
+                  <div className="text-sm font-semibold text-slate-100">Wall</div>
+                  <p className="mt-0.5 text-xs text-slate-400">
+                    Full <span className="font-mono-tabular">100%</span> wall-height stationary
+                    paddle for uninterrupted rally practice.
                   </p>
-                )}
+                </div>
+                <div className="lg:col-span-3">
+                  <span className="block text-xs font-medium text-slate-300 mb-1.5">Status</span>
+                  <div className="flex items-center gap-1 p-1 bg-[#0d131a] border border-white/15 rounded-lg max-w-[160px]">
+                    <button
+                      type="button"
+                      onClick={() => updateDemoField('wallEnabled', true)}
+                      className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
+                        form.demo.wallEnabled
+                          ? 'bg-emerald-500 text-slate-950 font-semibold'
+                          : 'text-slate-300 hover:text-white'
+                      }`}
+                    >
+                      On
+                    </button>
+                    <button
+                      type="button"
+                      disabled={form.demo.wallEnabled && enabledDemoModeCount <= 1}
+                      onClick={() => updateDemoField('wallEnabled', false)}
+                      className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
+                        !form.demo.wallEnabled
+                          ? 'bg-[#1e2a38] text-slate-100'
+                          : 'text-slate-400 hover:text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed'
+                      }`}
+                    >
+                      Off
+                    </button>
+                  </div>
+                </div>
+                <div className="lg:col-span-4 text-xs text-slate-400 font-mono-tabular">
+                  Length 1.00 (100%) · Stationary
+                </div>
               </div>
 
-              <div>
-                <label
-                  htmlFor="cfg-demo-paddle-speed"
-                  className="block text-xs font-medium text-slate-300 mb-1.5"
-                >
-                  Auto Movement Speed (0.20 – 2.50)
-                </label>
-                <input
-                  id="cfg-demo-paddle-speed"
-                  type="number"
-                  step="0.02"
-                  min="0.2"
-                  max="2.5"
-                  disabled={demoIsFullHeight || !form.demoAutoMove}
-                  value={form.demoPaddleSpeed}
-                  onChange={(e) => updateField('demoPaddleSpeed', e.target.value)}
-                  className="w-full px-3 py-2 text-sm font-mono-tabular text-slate-100 bg-[#0d131a] border border-white/15 rounded-lg focus:outline-none focus:border-emerald-500 disabled:opacity-45 disabled:cursor-not-allowed"
-                  required
-                />
+              {/* Gap Mode */}
+              <div className="py-4 grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+                <div className="lg:col-span-5">
+                  <div className="text-sm font-semibold text-slate-100">Gap</div>
+                  <p className="mt-0.5 text-xs text-slate-400">
+                    Centered stationary paddle leaving top and bottom gaps to train angled edge
+                    shots.
+                  </p>
+                </div>
+                <div className="lg:col-span-3">
+                  <span className="block text-xs font-medium text-slate-300 mb-1.5">Status</span>
+                  <div className="flex items-center gap-1 p-1 bg-[#0d131a] border border-white/15 rounded-lg max-w-[160px]">
+                    <button
+                      type="button"
+                      onClick={() => updateDemoField('gapEnabled', true)}
+                      className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
+                        form.demo.gapEnabled
+                          ? 'bg-emerald-500 text-slate-950 font-semibold'
+                          : 'text-slate-300 hover:text-white'
+                      }`}
+                    >
+                      On
+                    </button>
+                    <button
+                      type="button"
+                      disabled={form.demo.gapEnabled && enabledDemoModeCount <= 1}
+                      onClick={() => updateDemoField('gapEnabled', false)}
+                      className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
+                        !form.demo.gapEnabled
+                          ? 'bg-[#1e2a38] text-slate-100'
+                          : 'text-slate-400 hover:text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed'
+                      }`}
+                    >
+                      Off
+                    </button>
+                  </div>
+                </div>
+                <div className="lg:col-span-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <div className="flex items-center justify-between gap-2 mb-1.5">
+                      <label
+                        htmlFor="cfg-demo-gap-height"
+                        className="block text-xs font-medium text-slate-300"
+                      >
+                        Paddle Length
+                      </label>
+                      <span className="text-xs font-mono-tabular text-slate-400">
+                        {Math.round((Number(form.demo.gapPaddleHeight) || 0) * 100)}%
+                      </span>
+                    </div>
+                    <input
+                      id="cfg-demo-gap-height"
+                      type="number"
+                      step="0.01"
+                      min="0.08"
+                      max="0.99"
+                      value={form.demo.gapPaddleHeight}
+                      onChange={(e) => updateDemoField('gapPaddleHeight', e.target.value)}
+                      className="w-full px-3 py-2 text-sm font-mono-tabular text-slate-100 bg-[#0d131a] border border-white/15 rounded-lg focus:outline-none focus:border-emerald-500"
+                      required
+                    />
+                  </div>
+                  <div className="flex items-end pb-2 text-xs text-slate-400">
+                    Centered · No auto movement
+                  </div>
+                </div>
+              </div>
+
+              {/* Honing Mode */}
+              <div className="py-4 grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+                <div className="lg:col-span-5">
+                  <div className="text-sm font-semibold text-slate-100">Honing</div>
+                  <p className="mt-0.5 text-xs text-slate-400">
+                    Auto-moves to track the ball&apos;s vertical position continuously.
+                  </p>
+                </div>
+                <div className="lg:col-span-3">
+                  <span className="block text-xs font-medium text-slate-300 mb-1.5">Status</span>
+                  <div className="flex items-center gap-1 p-1 bg-[#0d131a] border border-white/15 rounded-lg max-w-[160px]">
+                    <button
+                      type="button"
+                      onClick={() => updateDemoField('honingEnabled', true)}
+                      className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
+                        form.demo.honingEnabled
+                          ? 'bg-emerald-500 text-slate-950 font-semibold'
+                          : 'text-slate-300 hover:text-white'
+                      }`}
+                    >
+                      On
+                    </button>
+                    <button
+                      type="button"
+                      disabled={form.demo.honingEnabled && enabledDemoModeCount <= 1}
+                      onClick={() => updateDemoField('honingEnabled', false)}
+                      className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
+                        !form.demo.honingEnabled
+                          ? 'bg-[#1e2a38] text-slate-100'
+                          : 'text-slate-400 hover:text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed'
+                      }`}
+                    >
+                      Off
+                    </button>
+                  </div>
+                </div>
+                <div className="lg:col-span-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <div className="flex items-center justify-between gap-2 mb-1.5">
+                      <label
+                        htmlFor="cfg-demo-honing-height"
+                        className="block text-xs font-medium text-slate-300"
+                      >
+                        Paddle Length
+                      </label>
+                      <span className="text-xs font-mono-tabular text-slate-400">
+                        {Math.round((Number(form.demo.honingPaddleHeight) || 0) * 100)}%
+                      </span>
+                    </div>
+                    <input
+                      id="cfg-demo-honing-height"
+                      type="number"
+                      step="0.01"
+                      min="0.08"
+                      max="0.99"
+                      value={form.demo.honingPaddleHeight}
+                      onChange={(e) => updateDemoField('honingPaddleHeight', e.target.value)}
+                      className="w-full px-3 py-2 text-sm font-mono-tabular text-slate-100 bg-[#0d131a] border border-white/15 rounded-lg focus:outline-none focus:border-emerald-500"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="cfg-demo-honing-speed"
+                      className="block text-xs font-medium text-slate-300 mb-1.5"
+                    >
+                      Auto Move Speed
+                    </label>
+                    <input
+                      id="cfg-demo-honing-speed"
+                      type="number"
+                      step="0.02"
+                      min="0.2"
+                      max="2.5"
+                      value={form.demo.honingSpeed}
+                      onChange={(e) => updateDemoField('honingSpeed', e.target.value)}
+                      className="w-full px-3 py-2 text-sm font-mono-tabular text-slate-100 bg-[#0d131a] border border-white/15 rounded-lg focus:outline-none focus:border-emerald-500"
+                      required
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Swipe Mode */}
+              <div className="py-4 grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+                <div className="lg:col-span-5">
+                  <div className="text-sm font-semibold text-slate-100">Swipe</div>
+                  <p className="mt-0.5 text-xs text-slate-400">
+                    Sweeps continuously from top to bottom and back up without tracking the ball.
+                  </p>
+                </div>
+                <div className="lg:col-span-3">
+                  <span className="block text-xs font-medium text-slate-300 mb-1.5">Status</span>
+                  <div className="flex items-center gap-1 p-1 bg-[#0d131a] border border-white/15 rounded-lg max-w-[160px]">
+                    <button
+                      type="button"
+                      onClick={() => updateDemoField('swipeEnabled', true)}
+                      className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
+                        form.demo.swipeEnabled
+                          ? 'bg-emerald-500 text-slate-950 font-semibold'
+                          : 'text-slate-300 hover:text-white'
+                      }`}
+                    >
+                      On
+                    </button>
+                    <button
+                      type="button"
+                      disabled={form.demo.swipeEnabled && enabledDemoModeCount <= 1}
+                      onClick={() => updateDemoField('swipeEnabled', false)}
+                      className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
+                        !form.demo.swipeEnabled
+                          ? 'bg-[#1e2a38] text-slate-100'
+                          : 'text-slate-400 hover:text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed'
+                      }`}
+                    >
+                      Off
+                    </button>
+                  </div>
+                </div>
+                <div className="lg:col-span-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <div className="flex items-center justify-between gap-2 mb-1.5">
+                      <label
+                        htmlFor="cfg-demo-swipe-height"
+                        className="block text-xs font-medium text-slate-300"
+                      >
+                        Paddle Length
+                      </label>
+                      <span className="text-xs font-mono-tabular text-slate-400">
+                        {Math.round((Number(form.demo.swipePaddleHeight) || 0) * 100)}%
+                      </span>
+                    </div>
+                    <input
+                      id="cfg-demo-swipe-height"
+                      type="number"
+                      step="0.01"
+                      min="0.08"
+                      max="0.99"
+                      value={form.demo.swipePaddleHeight}
+                      onChange={(e) => updateDemoField('swipePaddleHeight', e.target.value)}
+                      className="w-full px-3 py-2 text-sm font-mono-tabular text-slate-100 bg-[#0d131a] border border-white/15 rounded-lg focus:outline-none focus:border-emerald-500"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="cfg-demo-swipe-speed"
+                      className="block text-xs font-medium text-slate-300 mb-1.5"
+                    >
+                      Auto Move Speed
+                    </label>
+                    <input
+                      id="cfg-demo-swipe-speed"
+                      type="number"
+                      step="0.02"
+                      min="0.2"
+                      max="2.5"
+                      value={form.demo.swipeSpeed}
+                      onChange={(e) => updateDemoField('swipeSpeed', e.target.value)}
+                      className="w-full px-3 py-2 text-sm font-mono-tabular text-slate-100 bg-[#0d131a] border border-white/15 rounded-lg focus:outline-none focus:border-emerald-500"
+                      required
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Erratic Mode */}
+              <div className="pt-4 grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+                <div className="lg:col-span-5">
+                  <div className="text-sm font-semibold text-slate-100">Erratic</div>
+                  <p className="mt-0.5 text-xs text-slate-400">
+                    Random up and down bursts simulating erratic button presses without hitting edges
+                    every move.
+                  </p>
+                </div>
+                <div className="lg:col-span-3">
+                  <span className="block text-xs font-medium text-slate-300 mb-1.5">Status</span>
+                  <div className="flex items-center gap-1 p-1 bg-[#0d131a] border border-white/15 rounded-lg max-w-[160px]">
+                    <button
+                      type="button"
+                      onClick={() => updateDemoField('erraticEnabled', true)}
+                      className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
+                        form.demo.erraticEnabled
+                          ? 'bg-emerald-500 text-slate-950 font-semibold'
+                          : 'text-slate-300 hover:text-white'
+                      }`}
+                    >
+                      On
+                    </button>
+                    <button
+                      type="button"
+                      disabled={form.demo.erraticEnabled && enabledDemoModeCount <= 1}
+                      onClick={() => updateDemoField('erraticEnabled', false)}
+                      className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
+                        !form.demo.erraticEnabled
+                          ? 'bg-[#1e2a38] text-slate-100'
+                          : 'text-slate-400 hover:text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed'
+                      }`}
+                    >
+                      Off
+                    </button>
+                  </div>
+                </div>
+                <div className="lg:col-span-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <div className="flex items-center justify-between gap-2 mb-1.5">
+                      <label
+                        htmlFor="cfg-demo-erratic-height"
+                        className="block text-xs font-medium text-slate-300"
+                      >
+                        Paddle Length
+                      </label>
+                      <span className="text-xs font-mono-tabular text-slate-400">
+                        {Math.round((Number(form.demo.erraticPaddleHeight) || 0) * 100)}%
+                      </span>
+                    </div>
+                    <input
+                      id="cfg-demo-erratic-height"
+                      type="number"
+                      step="0.01"
+                      min="0.08"
+                      max="0.99"
+                      value={form.demo.erraticPaddleHeight}
+                      onChange={(e) => updateDemoField('erraticPaddleHeight', e.target.value)}
+                      className="w-full px-3 py-2 text-sm font-mono-tabular text-slate-100 bg-[#0d131a] border border-white/15 rounded-lg focus:outline-none focus:border-emerald-500"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="cfg-demo-erratic-speed"
+                      className="block text-xs font-medium text-slate-300 mb-1.5"
+                    >
+                      Auto Move Speed
+                    </label>
+                    <input
+                      id="cfg-demo-erratic-speed"
+                      type="number"
+                      step="0.02"
+                      min="0.2"
+                      max="2.5"
+                      value={form.demo.erraticSpeed}
+                      onChange={(e) => updateDemoField('erraticSpeed', e.target.value)}
+                      className="w-full px-3 py-2 text-sm font-mono-tabular text-slate-100 bg-[#0d131a] border border-white/15 rounded-lg focus:outline-none focus:border-emerald-500"
+                      required
+                    />
+                  </div>
+                </div>
               </div>
             </div>
           </section>

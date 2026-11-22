@@ -1,9 +1,9 @@
 services:
-  lan-pong-arena:
+  pong2000-arena:
     build:
       context: .
       dockerfile: app.Dockerfile
-    container_name: lan-pong-arena
+    container_name: pong2000-arena
     restart: unless-stopped
     ports:
       - "${PORT:-3000}:3000"

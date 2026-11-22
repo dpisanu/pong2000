@@ -144,7 +144,7 @@ export function ProfileSetupView({
               id="profile-heading"
               className="font-display text-3xl font-bold tracking-tight text-slate-100"
             >
-              {mode === 'onboarding' ? 'Enter LAN Pong Arena' : 'Edit Player Profile'}
+              {mode === 'onboarding' ? 'Enter Pong2000 Arena' : 'Edit Player Profile'}
             </h1>
             <p className="mt-1.5 text-sm text-slate-400">
               Choose a table nickname and pick a club emblem or upload your own avatar.

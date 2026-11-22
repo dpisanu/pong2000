@@ -1,28 +1,28 @@
-# LAN Pong Arena — Project Definition
+# Pong2000 Arena — Project Definition
 
-**Version:** 1.21  
+**Version:** 1.22  
 **Status:** Implemented MVP+ specification  
 **Date:** 2026-11-21  
-**Deployment:** Docker on a LAN host  
+**Deployment:** Docker on a networked host  
 **Clients:** Desktop browsers, keyboard input  
 **Avatar support:** Built-in gallery and custom image upload
 
 ## 1. Executive summary
 
-LAN Pong Arena is a self-hosted, browser-native, two-player Pong application for a local area network (LAN). Each player opens the same server URL in a desktop browser, creates a lightweight profile with a unique nickname, discovers available players in a live lobby, issues or accepts challenges, and plays a synchronized match. Multiple independent matches may run simultaneously. The system does not require internet access, accounts, or cloud services.
+Pong2000 Arena is a self-hosted, browser-native, two-player Pong application for network game sessions. Each player opens the same server URL in a desktop browser, creates a lightweight profile with a unique nickname, discovers available players in a live lobby, issues or accepts challenges, and plays a synchronized match. Multiple independent matches may run simultaneously. The system does not require internet access, accounts, or cloud services.
 
 **Architectural decision:** A single Dockerized Node.js application serves the browser client and maintains WebSocket connections. The server owns lobby, matchmaking, and game simulation state. Browsers send inputs and render authoritative snapshots.
 
 ## 2. Goals and success measures
 
 ### Goals
-1. Allow two people on separate LAN devices to start and finish a Pong match without installation beyond a browser.
+1. Allow two people on separate devices to start and finish a Pong match without installation beyond a browser.
 2. Provide a live player directory with unambiguous unique nicknames and an explicit challenge/accept workflow.
 3. Maintain consistent game state through a server-authoritative simulation.
 4. Handle disconnections, reconnects, invitations, and rematches predictably.
 5. Run as one Docker Compose service without external dependencies.
 6. Support nickname, gallery avatar, and uploaded avatar images.
-7. Make LAN discovery and sharing effortless via accurate host IP detection and an offline QR code.
+7. Make discovery and sharing effortless via accurate host IP detection and an offline QR code.
 
 ### Success measures
 - Two devices can discover one another and complete a match on an isolated LAN.
@@ -33,10 +33,10 @@ LAN Pong Arena is a self-hosted, browser-native, two-player Pong application for
 ## 3. Target users and environment
 
 - **Players:** Attendees using current desktop Chrome, Firefox, Edge, or Safari, with a keyboard.
-- **Operator:** One person starts the Docker container and shares the host's LAN URL.
-- **Network:** IPv4 LAN with client-to-host connectivity; no NAT traversal, public DNS, tunneling, or internet routing is required.
-- **Assumption:** The LAN permits inbound TCP traffic to the exposed application port. Conference Wi-Fi client isolation may prevent connectivity; use an access point/hotspot or network with client-to-host access.
-- **Trust model:** Friendly event LAN, not a hostile public internet deployment. Basic input validation, limits, and isolation remain mandatory.
+- **Operator:** One person starts the Docker container and shares the host's URL.
+- **Network:** IPv4 with client-to-host connectivity; no NAT traversal, public DNS, tunneling, or internet routing is required.
+- **Assumption:** The network permits inbound TCP traffic to the exposed application port. Conference Wi-Fi client isolation may prevent connectivity; use an access point/hotspot or network with client-to-host access.
+- **Trust model:** Friendly event network, not a hostile public internet deployment. Basic input validation, limits, and isolation remain mandatory.
 
 ## 4. In-scope functionality — seven MVP features
 
@@ -71,7 +71,13 @@ LAN Pong Arena is a self-hosted, browser-native, two-player Pong application for
 - Classic 2D Pong on a `16:10` logical arena: one paddle per player, ball, walls, swept/sub-stepped collision response, scores, center serve.
 - Desktop controls: `W`/`S` and `ArrowUp`/`ArrowDown`; prevent browser scrolling (`ArrowUp`, `ArrowDown`, `Space`) while match controls are active. Keyboard listeners remain mounted stably across 30 Hz snapshots (ref-backed dispatch, `e.repeat` ignored) so initial key presses register immediately without spurious direction resets.
 - Server is authoritative for paddle positions, ball physics, collision detection, scoring, and win condition, using the configured runtime `MatchRulesConfig` snapshot at match creation.
-- **Demo Mode:** Challenging `Demo Player` spawns a server-authoritative practice match in which the `Demo Player` paddle defaults to full vertical height (`1.0` / `100%`) and is configurable in `/admin` (`demoPaddleHeight` `0.08–1.00`, `demoAutoMove` on/off, `demoPaddleSpeed` `0.20–2.50`). When Demo paddle length is `< 100%` and auto-movement is enabled, the server actively tracks the ball at `demoPaddleSpeed`; auto-movement cannot be enabled or active when Demo paddle length is `100%`. Supports instant side-swapped rematch and standard leave/return-to-lobby cleanup.
+- **Demo Mode:** Challenging `Demo Player` spawns a server-authoritative practice match that randomly picks one of the enabled Demo User playing modes configured in `/admin` (requiring at least one active mode; `Wall` defaults to enabled):
+  - `Wall`: `1.00` (`100%`) wall-height stationary paddle.
+  - `Gap`: Centered stationary paddle (`0.08–0.99`, default `0.90`) leaving top/bottom edge gaps for angled-shot training.
+  - `Honing`: Auto-moving paddle tracking incoming ball position (`0.08–0.99` default `0.20`, speed `0.20–2.50` default `0.70`).
+  - `Swipe`: Constant top-to-bottom and bottom-to-top patrol without ball honing (`0.08–0.99` default `0.20`, speed `0.20–2.50` default `0.70`).
+  - `Erratic`: Randomized directional bursts simulating erratic button presses without needing to hit edges (`0.08–0.99` default `0.30`, speed `0.20–2.50` default `1.00`).
+  Supports instant side-swapped rematch and standard leave/return-to-lobby cleanup.
 - Fixed simulation timestep: 60 Hz (`4` collision substeps per tick to prevent ball tunneling). Broadcast snapshots at 30 Hz (every 2 ticks). Browser renders via `requestAnimationFrame`, interpolating between snapshots and applying visual-only client-side prediction for the player's own paddle reconciled smoothly against authoritative snapshots.
 - Default first to 5 points wins (configurable via `/admin` from 1 to 21); show scores, avatars, side indicator, live ping latency (`ms`), and opponent connection status in the match HUD.
 - Synthesized Web Audio API sound effects (paddle hits, wall bounces, countdown ticks, point chimes, match finish) with a mute/unmute toggle in the match HUD; zero external audio assets.
@@ -95,13 +101,13 @@ LAN Pong Arena is a self-hosted, browser-native, two-player Pong application for
 - If a player disconnects while available or invited, cancel their active invitation immediately and remove the lobby entry after a brief refresh window (3 seconds) if not recovered.
 - On server restart, volatile sessions and matches are reset. Clients recover to profile/lobby state, not the old match.
 
-### F7. LAN hosting & `/admin` console
+### F7. Network hosting & `/admin` console
 - Package server and built frontend into one Docker image (`app.Dockerfile` referenced by `compose.yaml`, plus `Dockerfile`), exposing port `3000/TCP` and mounting named volume `avatars_data` at `/data/avatars`.
 - Bind the HTTP/WebSocket listener to `0.0.0.0` inside the container.
 - Provide `/healthz` endpoint (counting connected human players and active matches) and Docker healthcheck.
-- Client connects to WebSocket using the page's current host and appropriate `ws:`/`wss:` scheme; never hardcode `localhost` or a LAN IP.
-- **Admin Configuration Console (`/admin` & `/api/admin/*`):** Protected by `ADMIN_PASSCODE` (or a one-time first-run passcode setup when unset, with in-memory bearer tokens and login attempt throttling). Allows operators to configure runtime paddle length, paddle speed, ball initial/increment/max speeds, game rounds (`winScore`), countdown/challenge/disconnect timeout values, an explicit Host IP/URL, and **Demo User** behavior (paddle length, auto-movement on/off—permitted only below 100% paddle length—and auto-movement speed).
-- **Host LAN IP Discovery & Share Dialog:** `/api/server-info` prioritizes the Admin-configured Host IP / `PUBLIC_URL`, then the incoming non-loopback `Host`/`X-Forwarded-Host` header, then non-container LAN IPv4 interfaces—explicitly filtering out link-local (`169.254.x.x`) and Docker bridge (`172.16.0.0/12`) addresses when running inside a container. The **Share LAN URL** modal displays a copyable URL and an offline-generated QR code without inline error boxes or inline IP inputs; if no external IP is detected, it links cleanly to **Open Admin**.
+- Client connects to WebSocket using the page's current host and appropriate `ws:`/`wss:` scheme; never hardcode `localhost` or a Network IP.
+- **Admin Configuration Console (`/admin` & `/api/admin/*`):** Protected by `ADMIN_PASSCODE` (or a one-time first-run passcode setup when unset, with in-memory bearer tokens and login attempt throttling). Allows operators to configure runtime paddle length, paddle speed, ball initial/increment/max speeds, game rounds (`winScore`), countdown/challenge/disconnect timeout values, an explicit Host IP/URL, and per-mode **Demo User** playing behaviors (`Wall`, `Gap`, `Honing`, `Swipe`, `Erratic`, with at least one mode enabled).
+- **Host Network IP Discovery & Share Dialog:** `/api/server-info` prioritizes the Admin-configured Host IP / `PUBLIC_URL`, then the incoming non-loopback `Host`/`X-Forwarded-Host` header, then non-container IPv4 interfaces—explicitly filtering out link-local (`169.254.x.x`) and Docker bridge (`172.16.0.0/12`) addresses when running inside a container. The **Share Game URL** modal displays a copyable URL and an offline-generated QR code without inline error boxes or inline IP inputs; if no external IP is detected, it links cleanly to **Open Admin**.
 - No internet connectivity required after images and dependencies have been built/pulled. Document offline image preparation (`docker save` / `docker load`).
 - The Docker host firewall must allow the exposed port; include troubleshooting instructions.
 
@@ -124,15 +130,15 @@ Desktop Browser A                  Desktop Browser B
           | HTTP + WebSocket                  |
           +----------------+------------------+
                            |
-                  LAN host :3000/TCP
+                network host :3000/TCP
                            |
                   Docker Compose service
                            |
-                    Node.js + TypeScript
+                  Node.js + TypeScript
                  /         |          \
-           HTTP/static   WS gateway   Avatar upload API
+        HTTP/static   WS gateway   Avatar upload API
                  |         |          |
-             Vite build   Session / Lobby / Challenge manager
+          Vite build   Session / Lobby / Challenge manager
                            |
                    Match manager (Map<matchId, Match>)
                            |
@@ -148,7 +154,7 @@ Desktop Browser A                  Desktop Browser B
 - **Server:** Node.js 22 (`--experimental-strip-types`), Express, `ws` (WebSocket), `sharp` (image validation & WebP re-encoding).
 - **Shared:** TypeScript protocol schemas, types, constants, and Zod runtime validation.
 - **Build:** Multi-stage Docker build (`app.Dockerfile` & `Dockerfile`) using `--legacy-peer-deps`; production runtime serves compiled `dist/` assets and backend on port 3000.
-- **Tests:** Vitest unit tests (physics, validation, avatar processing, LAN URL discovery) and WebSocket integration tests (races, expiry, match isolation, reconnect recovery, disconnect forfeit, unique nicknames).
+- **Tests:** Vitest unit tests (physics, validation, avatar processing, Network URL discovery) and WebSocket integration tests (races, expiry, match isolation, reconnect recovery, disconnect forfeit, unique nicknames).
 
 ### Responsibilities and boundaries
 - **Client owns:** UI, keyboard capture, local preferences, avatar selection/upload, snapshot interpolation, Web Audio FX, connection UX.
@@ -160,7 +166,7 @@ Desktop Browser A                  Desktop Browser B
 ### Repository layout
 
 ```text
-lan-pong-arena/
+pong2000-arena/
   src/{admin,audio,components,game,leaderboard,lobby,network,profile,storage}/
   server/src/{avatars,challenges,config,engine,http,leaderboard,matches,sessions,ws}/
   shared/src/{constants,protocol,types,validation}/
@@ -183,7 +189,7 @@ lan-pong-arena/
 |---|---|---|
 | GET | `/`, `/leaderboard`, `/admin` | Serve browser app (lobby/arena, runtime leaderboard, and operator admin console SPA routes) |
 | GET | `/healthz` | Readiness/health status (`status`, `uptimeSeconds`, `activePlayers`, `activeMatches`) |
-| GET | `/api/server-info` | Return prioritized host LAN URLs, port, and container detection metadata |
+| GET | `/api/server-info` | Return prioritized host Network URLs, port, and container detection metadata |
 | GET | `/api/config` | Return current public gameplay rules (excludes admin-only `hostIp` setting) |
 | GET | `/api/leaderboard` | Return runtime player standings (including `Demo Player`) with played, won, lost, forfeited, longest match, and ping stats |
 | GET | `/api/admin/status` | Check whether first-run passcode setup is needed and verify Bearer session |
@@ -354,7 +360,7 @@ Rematch creates a **new match ID** with swapped sides after both players agree, 
 - Check WebSocket `Origin` and `POST /api/avatars` `Origin` against the request `Host` or `ALLOWED_ORIGINS`.
 - Enforce upload and WebSocket rate limits; set body (`1 MiB`) and WS payload (`16 KiB`) size caps.
 - Re-encode uploads to 256×256 WebP to remove metadata and unsafe content; reject SVG payloads; enforce `path.resolve` + `path.sep` storage confinement; serve with `X-Content-Type-Options: nosniff`.
-- HTTP is acceptable only on a trusted LAN for the MVP. Traffic and recovery tokens are not encrypted; document this limitation. HTTPS/WSS may be added via a TLS reverse proxy.
+- HTTP is acceptable only on a trusted Network for the MVP. Traffic and recovery tokens are not encrypted; document this limitation. HTTPS/WSS may be added via a TLS reverse proxy.
 
 ### Operational requirements
 - One Docker Compose command starts the app: `docker compose up -d --build` (using `app.Dockerfile`).
@@ -399,19 +405,19 @@ Performance values are design targets to verify on real hardware, not guaranteed
 - [x] **A13 Forfeit:** A player who does not reconnect within 10 seconds forfeits; the other player is notified and can return to lobby.
 - [x] **A14 Multiple matches:** Two separate pairs play concurrently without receiving each other's private snapshots.
 - [x] **A15 Restart:** Restarting the container clears active matches but retains stored avatars and browser-local profiles.
-- [x] **A16 LAN & Share URL (v1.01):** The app is usable from two LAN devices without internet access; **Share LAN URL** displays the real host LAN URL (from Admin `hostIp`/`PUBLIC_URL`, non-loopback `Host` header, or host network interface) and offline QR code without exposing Docker container bridge (`172.16–31.x.x`) or link-local (`169.254.x.x`) IPs, and omits error boxes or inline IP forms (linking instead to **Open Admin** when no external IP is detected).
+- [x] **A16 Network & Share URL (v1.01):** The app is usable from two networked devices without internet access; **Share Server URL** displays the real host Server URL (from Admin `hostIp`/`PUBLIC_URL`, non-loopback `Host` header, or host network interface) and offline QR code without exposing Docker container bridge (`172.16–31.x.x`) or link-local (`169.254.x.x`) IPs, and omits error boxes or inline IP forms (linking instead to **Open Admin** when no external IP is detected).
 - [x] **A17 Validation:** Invalid commands, malformed messages, unauthorized match input, and invalid uploads do not crash the server.
-- [x] **A18 Admin Configuration (`/admin`):** Operators authenticate via `ADMIN_PASSCODE` or first-run passcode setup and configure paddle length, paddle speed, ball velocities, game rounds, timeouts, Host IP, and Demo User settings (paddle length, auto-movement on/off strictly disabled at 100%, and auto-movement speed); changes take effect for new matches and broadcast to connected clients.
-- [x] **A19 Demo Mode & Ping Readout:** Players can challenge `Demo Player` from the lobby to enter an immediate practice match using the configured Demo paddle length and optional server-driven ball-tracking auto-movement (when length < 100%), and can inspect their live server round-trip ping latency (`ms`) in both the Top Bar and Match HUD.
+- [x] **A18 Admin Configuration (`/admin`):** Operators authenticate via `ADMIN_PASSCODE` or first-run passcode setup and configure paddle length, paddle speed, ball velocities, game rounds, timeouts, Host IP, and the five **Demo User** playing modes (`Wall`, `Gap`, `Honing`, `Swipe`, `Erratic`); changes take effect for new matches and broadcast to connected clients.
+- [x] **A19 Demo Mode & Ping Readout:** Players can challenge `Demo Player` from the lobby to enter an immediate practice match using one randomly selected enabled Demo playing mode (`Wall`, `Gap`, `Honing`, `Swipe`, or `Erratic`), and can inspect their live server round-trip ping latency (`ms`) in both the Top Bar and Match HUD.
 - [x] **A20 Runtime Leaderboard (`/leaderboard` & `GET /api/leaderboard`):** Displays ranked players for the current server runtime (including `Demo Player`), showing Gold/Silver/Bronze trophy icons before the top 3 players' names along with total matches played, won, lost, forfeited, longest match duration, and live ping/lag status.
 
 ### Engineering definition of done
 - [x] Clean Docker build (`app.Dockerfile`) and Compose startup (`compose.yaml`) from README instructions.
-- [x] Unit tests cover wall/paddle collision, anti-tunneling, Demo full-height & auto-tracking paddle physics, score, `stepPaddlesOnly` & `MatchManager` countdown paddle head-start timing, nickname/avatar validation, `ServerConfigService` (including Demo 100% auto-move restriction) & `AdminAuthService`, `LeaderboardService`, WebP sanitization, and LAN URL filtering (`tests/unit/`).
-- [x] Integration tests cover challenge race, expiry, disconnect timeout, reconnect recovery, match isolation, unique nickname enforcement, `ping`/`pong`, Demo Player auto-accept & auto-moving matches, `/api/admin/*`, and `/api/leaderboard` (`tests/integration/`).
-- [x] Verified on Docker Compose LAN host (`/healthz`, container build, multi-client play).
+- [x] Unit tests cover wall/paddle collision, anti-tunneling, Demo Wall/Gap/Honing/Swipe/Erratic paddle physics, score, `stepPaddlesOnly` & `MatchManager` countdown paddle head-start timing, nickname/avatar validation, `ServerConfigService` & `AdminAuthService`, `LeaderboardService`, WebP sanitization, and Network URL filtering (`tests/unit/`).
+- [x] Integration tests cover challenge race, expiry, disconnect timeout, reconnect recovery, match isolation, unique nickname enforcement, `ping`/`pong`, Demo Player auto-accept & mode-configured matches, `/api/admin/*`, and `/api/leaderboard` (`tests/integration/`).
+- [x] Verified on Docker Compose Network host (`/healthz`, container build, multi-client play).
 - [x] No runtime dependency on external APIs, hosted assets, or cloud services.
-- [x] README includes configuration, startup, `/leaderboard` & `/admin` usage, Demo Mode, sharing LAN URL, offline `docker save`/`load`, licensing (MIT `LICENSE`), and troubleshooting.
+- [x] README includes configuration, startup, `/leaderboard` & `/admin` usage, Demo Mode, sharing Server URL, offline `docker save`/`load`, licensing (MIT `LICENSE`), and troubleshooting.
 
 ## 14. Implementation milestones
 
@@ -422,7 +428,7 @@ Performance values are design targets to verify on real hardware, not guaranteed
 | **M3 — Challenges & matchmaking** | Invitations, accept/decline/cancel/30s expiry, race-safe reservations | Complete |
 | **M4 — Game engine & rendering** | 16:10 Canvas, snapshot interpolation, 60 Hz physics, scoring, Web Audio FX | Complete |
 | **M5 — Lifecycle & recovery** | Results, side-swap rematch, confirm-leave, heartbeat, 10s pause/reconnect/forfeit | Complete |
-| **M6 — Validation & LAN polish** | Unit & integration tests, host LAN IP discovery, offline QR share, v1.01 docs | Complete |
+| **M6 — Validation & Network polish** | Unit & integration tests, host Network IP discovery, offline QR share, v1.01 docs | Complete |
 
 ## 15. Key risks and mitigations
 
@@ -446,10 +452,10 @@ The following nonblocking choices from v1.0 were resolved in v1.01:
 - **HTTP/WS Stack:** Express + `ws` on Node.js 22 (`--experimental-strip-types`), serving Vite middleware in dev and compiled `dist/` in production.
 - **Arena & Audio:** `16:10` normalized playfield with synthesized Web Audio API sound effects (mute toggle included).
 - **Countdown & Controls:** 1-second pre-serve paddle movement head start (`COUNTDOWN_PADDLE_UNLOCK_MS = 1000`, active at second 2 of the 3s start) with visual-only local paddle prediction.
-- **LAN Discovery:** Offline QR code generation via `qrcode` inside the **Share LAN URL** dialog with smart container IP filtering.
+- **Network Discovery:** Offline QR code generation via `qrcode` inside the **Share Server URL** dialog with smart container IP filtering.
 - **Rematch Behavior:** Mutual rematch automatically swaps paddle sides (`left` ↔ `right`) in a new match ID.
 - **Licensing:** Entire project released under the MIT License (`LICENSE`).
 
 ## 17. Final project statement
 
-**Build a Docker-hosted, LAN-only, browser-native Pong arena in which desktop players create profiles with unique nicknames and gallery or uploaded avatars, discover one another in a live lobby, exchange challenges, play server-authoritative real-time Pong, complete/rematch games, and recover safely from network disconnections.** Deliver the source, container configuration, tests, and instructions required to run and demonstrate the application on a local network.
+**Build a Docker-hosted, Network only, browser-native Pong arena in which desktop players create profiles with unique nicknames and gallery or uploaded avatars, discover one another in a live lobby, exchange challenges, play server-authoritative real-time Pong, complete/rematch games, and recover safely from network disconnections.** Deliver the source, container configuration, tests, and instructions required to run and demonstrate the application on a local network.

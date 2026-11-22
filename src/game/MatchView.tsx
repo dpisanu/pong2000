@@ -457,12 +457,16 @@ export function MatchView({
             const demoHeight =
               rules.demoSide === 'left' ? rules.leftPaddleHeight : rules.rightPaddleHeight;
             const demoPct = Math.round(demoHeight * 100);
-            const demoDesc =
-              demoHeight >= 1.0
-                ? 'Demo mode (100% full-height paddle)'
-                : `Demo mode (${demoPct}% paddle · ${
-                    rules.demoAutoMove ? `Auto-move ${rules.demoPaddleSpeed}` : 'Stationary'
-                  })`;
+            const modeLabelMap = {
+              wall: 'Wall (100% paddle)',
+              gap: `Gap (${demoPct}% centered)`,
+              honing: `Honing (${demoPct}% · speed ${rules.demoPaddleSpeed})`,
+              swipe: `Swipe (${demoPct}% · speed ${rules.demoPaddleSpeed})`,
+              erratic: `Erratic (${demoPct}% · speed ${rules.demoPaddleSpeed})`,
+            } as const;
+            const demoDesc = rules.demoMode
+              ? `Demo mode: ${modeLabelMap[rules.demoMode]}`
+              : `Demo mode (${demoPct}% paddle)`;
             return (
               <>
                 <span aria-hidden="true">·</span>

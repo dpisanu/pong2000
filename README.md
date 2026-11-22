@@ -1,4 +1,4 @@
-# LAN Pong Arena
+# Pong2000 Arena
 
 Self-hosted, browser-native two-player Pong arena for a local area network (LAN). Players open the host URL in a desktop browser, pick a nickname and avatar (bundled gallery or uploaded PNG/JPEG/WebP), discover players in a live lobby, exchange challenges, and play server-authoritative 60 Hz matches with automatic reconnect recovery.
 
@@ -16,7 +16,7 @@ Self-hosted, browser-native two-player Pong arena for a local area network (LAN)
    ```bash
    curl http://127.0.0.1:3000/healthz
    ```
-4. Share the host LAN URL (`http://<LAN_HOST_IP>:3000`) with players. You can also click **Share LAN URL** in the app header to view detected LAN IPv4 addresses and an offline QR code.
+4. Share the host LAN URL (`http://<LAN_HOST_IP>:3000`) with players. You can also click **Share Game URL** in the app header to view detected LAN IPv4 addresses and an offline QR code.
 
 Uploaded avatars are stored as sanitized 256x256 WebP images inside the `avatars_data` Docker volume (`/data/avatars`) and persist across container restarts. Active matches and lobby sessions stay in memory and reset cleanly on container restart.
 
@@ -26,11 +26,11 @@ Build and export the image while connected to the internet, then load it on an i
 
 ```bash
 # On a machine with Docker and internet access
-docker build -f app.Dockerfile -t lan-pong-arena:latest .
-docker save -o lan-pong-arena.tar lan-pong-arena:latest
+docker build -f app.Dockerfile -t pong2000-arena:latest .
+docker save -o pong2000-arena.tar pong2000-arena:latest
 
 # On the offline LAN host
-docker load -i lan-pong-arena.tar
+docker load -i pong2000-arena.tar
 docker compose up -d --no-build
 ```
 
@@ -63,10 +63,10 @@ Visit `/leaderboard` (or click **Leaderboard** in the top navigation bar, or que
 
 Visit `/admin` (or click **Admin** in the top navigation bar) to configure runtime server settings without restarting the container:
 
-- **Host IP / URL:** Explicitly set the LAN IPv4 address or URL shown in **Share LAN URL** (recommended when running inside Docker on bridge networking).
+- **Host IP / URL:** Explicitly set the LAN IPv4 address or URL shown in **Share Game URL** (recommended when running inside Docker on bridge networking).
 - **Gameplay Physics & Rules:** Tune paddle length (`0.08–0.45`), paddle speed (`0.30–2.50`), ball initial/increment/max speeds, and points to win (`1–21`).
 - **Timeouts:** Adjust challenge expiry, disconnect grace period, and initial/after-point/reconnect countdown durations.
-- **Demo User:** Configure Demo Player's paddle length (`0.08–1.00`), toggle auto-movement on/off (available only when paddle length is below `100%`), and set auto-movement speed (`0.20–2.50`).
+- **Demo User:** Toggle and tune each Demo Player playing mode (`Wall`, `Gap`, `Honing`, `Swipe`, `Erratic`). At least one mode stays active, and Demo Player randomly picks one enabled behavior at the start of each practice match.
 
 Set `ADMIN_PASSCODE` in `.env` to lock `/admin` with a predefined passcode, or leave it unset to claim a one-time passcode on your first visit to `/admin`.
 

@@ -22,10 +22,12 @@ import type {
 import { ServerConfigService } from '../config/serverConfig.ts';
 import {
   computeDemoPaddleInput,
+  createInitialDemoAiState,
   createInitialPhysics,
   resetBallForServe,
   stepMatchPhysics,
   stepPaddlesOnly,
+  type DemoAiState,
   type EngineRules,
   type PaddleInputDir,
   type PhysicsState,
@@ -39,6 +41,7 @@ export interface MatchRecord {
   phase: MatchPhase;
   rules: MatchRulesConfig;
   physics: PhysicsState;
+  demoAiState: DemoAiState;
   inputs: { left: PaddleInputDir; right: PaddleInputDir };
   lastSeq: { left: number; right: number };
   score: { left: number; right: number };
@@ -248,6 +251,7 @@ export class MatchManager {
       phase: 'COUNTDOWN',
       rules,
       physics: createInitialPhysics('right', rules.ballInitialSpeed),
+      demoAiState: createInitialDemoAiState(),
       inputs: { left: 0, right: 0 },
       lastSeq: { left: -1, right: -1 },
       score: { left: 0, right: 0 },
@@ -370,6 +374,7 @@ export class MatchManager {
     );
 
     const demoSide = match.rules.demoSide;
+    const demoMode = match.rules.demoMode;
     const demoSideHeight = demoSide
       ? demoSide === 'left'
         ? match.rules.leftPaddleHeight
@@ -378,7 +383,9 @@ export class MatchManager {
     const demoAutoActive =
       match.rules.isDemoMatch &&
       demoSide !== null &&
-      match.rules.demoAutoMove &&
+      demoMode !== null &&
+      demoMode !== 'wall' &&
+      demoMode !== 'gap' &&
       demoSideHeight < 1.0;
 
     let stepped = false;
@@ -387,8 +394,14 @@ export class MatchManager {
       match.tick += 1;
       stepped = true;
 
-      if (demoAutoActive && demoSide) {
-        match.inputs[demoSide] = computeDemoPaddleInput(match.physics, demoSide);
+      if (demoAutoActive && demoSide && demoMode) {
+        match.inputs[demoSide] = computeDemoPaddleInput(
+          match.physics,
+          demoSide,
+          demoMode,
+          match.demoAiState,
+          demoSideHeight,
+        );
       } else if (demoSide) {
         match.inputs[demoSide] = 0;
       }
@@ -416,6 +429,7 @@ export class MatchManager {
         match.countdownEndPerfMs = performance.now() + match.rules.pointCountdownMs;
         match.countdownPaddlesUnlocked = false;
         match.accumulatorMs = 0;
+        match.demoAiState.erraticTicksRemaining = 0;
         if (demoSide) match.inputs[demoSide] = 0;
         this.callbacks.onMatchPhase(match, this.getParticipants(match));
         this.callbacks.onMatchSnapshot(match, this.toSnapshot(match));
