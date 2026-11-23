@@ -6,9 +6,10 @@ Self-hosted, browser-native two-player Pong arena for a local area network (LAN)
 
 ### Commercial Video
 
-<video width="320" height="240" controls>
- <source src="docs/videos/pong2000-commercial.mp4" type="video/mp4">
-</video>
+Check out the following videos to show the experience of Pong2000!
+
+- [Video 01](file:docs/videos/01/pong2000-commercial.mp4)
+- [Video 02](file:docs/videos/02/pong2000-commercial.mp4)
 
 ### Initial Profile Creation
 
