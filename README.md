@@ -2,6 +2,47 @@
 
 Self-hosted, browser-native two-player Pong arena for a local area network (LAN). Players open the host URL in a desktop browser, pick a nickname and avatar (bundled gallery or uploaded PNG/JPEG/WebP), discover players in a live lobby, exchange challenges, and play server-authoritative 60 Hz matches with automatic reconnect recovery.
 
+## Screenshots
+
+### Commercial Video
+
+<video width="320" height="240" controls>
+ <source src="docs/videos/pong2000-commercial.mp4" type="video/mp4">
+</video>
+
+### Initial Profile Creation
+
+![Initial Profile Creation](docs/screenshots/initial-profile.png)
+
+### Arena Lobby
+
+![Arena Lobby](docs/screenshots/arena-lobby.png)
+
+### Edit Player Profile
+
+**Profile Tab**
+
+![Edit Player Profile — Profile Tab](docs/screenshots/edit-profile-tab.png)
+
+**Demo Player Modes Tab**
+
+![Edit Player Profile — Demo Player Modes Tab](docs/screenshots/edit-demo-modes-tab.png)
+
+Players can select their prefered game mode with the Demo Player.
+If default is selected, the server side settings take effect.
+
+### Arena Leaderboard
+
+![Arena Leaderboard](docs/screenshots/leaderboard.png)
+
+### Live Two-Player Match
+
+![Live Two-Player Match](docs/screenshots/gameplay-session.gif)
+
+### Admin Console
+
+![Admin Console](docs/screenshots/admin.png)
+
 ## Quick Start (Docker Compose)
 
 1. Copy `.env.example` to `.env` if you want to customize settings (optional):
