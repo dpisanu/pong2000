@@ -14,6 +14,7 @@ interface PongArenaCanvasProps {
   yourSide: PaddleSide;
   localDirectionRef: RefObject<-1 | 0 | 1>;
   rules?: MatchRulesConfig;
+  localTwoPlayer?: boolean;
 }
 
 interface SnapshotSample {
@@ -34,6 +35,7 @@ export function PongArenaCanvas({
   yourSide,
   localDirectionRef,
   rules,
+  localTwoPlayer = false,
 }: PongArenaCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const samplesRef = useRef<{ prev: SnapshotSample | null; curr: SnapshotSample | null }>({
@@ -43,6 +45,7 @@ export function PongArenaCanvas({
   const trailRef = useRef<Array<{ x: number; y: number }>>([]);
   const yourSideRef = useRef<PaddleSide>(yourSide);
   const rulesRef = useRef<MatchRulesConfig | undefined>(rules);
+  const localTwoPlayerRef = useRef<boolean>(localTwoPlayer);
   const predictedSelfYRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -52,6 +55,10 @@ export function PongArenaCanvas({
   useEffect(() => {
     rulesRef.current = rules;
   }, [rules]);
+
+  useEffect(() => {
+    localTwoPlayerRef.current = localTwoPlayer;
+  }, [localTwoPlayer]);
 
   useEffect(() => {
     const nowPerf = performance.now();
@@ -135,59 +142,66 @@ export function PongArenaCanvas({
         isPlaying = curr.snapshot.phase === 'PLAYING';
         paddlesActive = isPlaying || Boolean(curr.snapshot.paddlesUnlocked);
 
-        if (prev && paddlesActive && curr.snapshot.tick > prev.snapshot.tick) {
-          const intervalMs = Math.max(16, Math.min(80, curr.receivedPerfMs - prev.receivedPerfMs));
-          const elapsed = frameNowPerf - curr.receivedPerfMs;
-          // Interpolate smoothly from prev toward curr, allowing tiny bounded extrapolation (up to 25%)
-          const alpha = Math.max(0, Math.min(1.25, elapsed / intervalMs));
-
-          if (isPlaying) {
-            const jumpDist = Math.hypot(
-              curr.snapshot.ball.x - prev.snapshot.ball.x,
-              curr.snapshot.ball.y - prev.snapshot.ball.y,
-            );
-            if (jumpDist > 0.35) {
-              ballX = curr.snapshot.ball.x;
-              ballY = curr.snapshot.ball.y;
-            } else {
-              ballX = lerp(prev.snapshot.ball.x, curr.snapshot.ball.x, alpha);
-              ballY = lerp(prev.snapshot.ball.y, curr.snapshot.ball.y, alpha);
-            }
-          } else {
-            ballX = curr.snapshot.ball.x;
-            ballY = curr.snapshot.ball.y;
-          }
-
-          leftY = lerp(prev.snapshot.paddles.leftY, curr.snapshot.paddles.leftY, Math.min(1, alpha));
-          rightY = lerp(prev.snapshot.paddles.rightY, curr.snapshot.paddles.rightY, Math.min(1, alpha));
-        } else {
+        if (localTwoPlayerRef.current) {
           ballX = curr.snapshot.ball.x;
           ballY = curr.snapshot.ball.y;
           leftY = curr.snapshot.paddles.leftY;
           rightY = curr.snapshot.paddles.rightY;
-        }
+        } else {
+          if (prev && paddlesActive && curr.snapshot.tick > prev.snapshot.tick) {
+            const intervalMs = Math.max(16, Math.min(80, curr.receivedPerfMs - prev.receivedPerfMs));
+            const elapsed = frameNowPerf - curr.receivedPerfMs;
+            // Interpolate smoothly from prev toward curr, allowing tiny bounded extrapolation (up to 25%)
+            const alpha = Math.max(0, Math.min(1.25, elapsed / intervalMs));
 
-        // Visual-only client-side prediction for own paddle so key presses feel instant
-        const leftNormH = rulesRef.current?.leftPaddleHeight ?? PADDLE_HEIGHT;
-        const rightNormH = rulesRef.current?.rightPaddleHeight ?? PADDLE_HEIGHT;
-        const activePaddleSpeed = rulesRef.current?.paddleSpeed ?? PADDLE_SPEED;
+            if (isPlaying) {
+              const jumpDist = Math.hypot(
+                curr.snapshot.ball.x - prev.snapshot.ball.x,
+                curr.snapshot.ball.y - prev.snapshot.ball.y,
+              );
+              if (jumpDist > 0.35) {
+                ballX = curr.snapshot.ball.x;
+                ballY = curr.snapshot.ball.y;
+              } else {
+                ballX = lerp(prev.snapshot.ball.x, curr.snapshot.ball.x, alpha);
+                ballY = lerp(prev.snapshot.ball.y, curr.snapshot.ball.y, alpha);
+              }
+            } else {
+              ballX = curr.snapshot.ball.x;
+              ballY = curr.snapshot.ball.y;
+            }
 
-        if (paddlesActive) {
-          const selfNormH = yourSideRef.current === 'left' ? leftNormH : rightNormH;
-          const minY = selfNormH / 2;
-          const maxY = 1 - selfNormH / 2;
-          const baseSelfY =
-            predictedSelfYRef.current ??
-            (yourSideRef.current === 'left'
-              ? curr.snapshot.paddles.leftY
-              : curr.snapshot.paddles.rightY);
-          const dir = localDirectionRef.current ?? 0;
-          const nextSelfY = clamp(baseSelfY + dir * activePaddleSpeed * dtSec, minY, maxY);
-          predictedSelfYRef.current = nextSelfY;
-          if (yourSideRef.current === 'left') {
-            leftY = nextSelfY;
+            leftY = lerp(prev.snapshot.paddles.leftY, curr.snapshot.paddles.leftY, Math.min(1, alpha));
+            rightY = lerp(prev.snapshot.paddles.rightY, curr.snapshot.paddles.rightY, Math.min(1, alpha));
           } else {
-            rightY = nextSelfY;
+            ballX = curr.snapshot.ball.x;
+            ballY = curr.snapshot.ball.y;
+            leftY = curr.snapshot.paddles.leftY;
+            rightY = curr.snapshot.paddles.rightY;
+          }
+
+          // Visual-only client-side prediction for own paddle so key presses feel instant
+          const leftNormH = rulesRef.current?.leftPaddleHeight ?? PADDLE_HEIGHT;
+          const rightNormH = rulesRef.current?.rightPaddleHeight ?? PADDLE_HEIGHT;
+          const activePaddleSpeed = rulesRef.current?.paddleSpeed ?? PADDLE_SPEED;
+
+          if (paddlesActive) {
+            const selfNormH = yourSideRef.current === 'left' ? leftNormH : rightNormH;
+            const minY = selfNormH / 2;
+            const maxY = 1 - selfNormH / 2;
+            const baseSelfY =
+              predictedSelfYRef.current ??
+              (yourSideRef.current === 'left'
+                ? curr.snapshot.paddles.leftY
+                : curr.snapshot.paddles.rightY);
+            const dir = localDirectionRef.current ?? 0;
+            const nextSelfY = clamp(baseSelfY + dir * activePaddleSpeed * dtSec, minY, maxY);
+            predictedSelfYRef.current = nextSelfY;
+            if (yourSideRef.current === 'left') {
+              leftY = nextSelfY;
+            } else {
+              rightY = nextSelfY;
+            }
           }
         }
       }
@@ -230,7 +244,7 @@ export function PongArenaCanvas({
 
       // Left paddle
       const leftIsSelf = yourSideRef.current === 'left';
-      ctx.fillStyle = leftIsSelf ? '#10b981' : '#e2e8f0';
+      ctx.fillStyle = localTwoPlayerRef.current || leftIsSelf ? '#10b981' : '#e2e8f0';
       ctx.beginPath();
       ctx.roundRect(
         leftX,
@@ -243,7 +257,11 @@ export function PongArenaCanvas({
 
       // Right paddle
       const rightIsSelf = yourSideRef.current === 'right';
-      ctx.fillStyle = rightIsSelf ? '#10b981' : '#e2e8f0';
+      ctx.fillStyle = localTwoPlayerRef.current
+        ? '#38bdf8'
+        : rightIsSelf
+          ? '#10b981'
+          : '#e2e8f0';
       ctx.beginPath();
       ctx.roundRect(
         rightX,

@@ -5,16 +5,21 @@
   "license": "MIT",
   "type": "module",
   "workspaces": [
-    "game/multi"
+    "game/multi",
+    "game/single"
   ],
   "scripts": {
     "dev": "npm --prefix game/multi run dev",
+    "dev:single": "npm --prefix game/single run dev",
     "start": "npm --prefix game/multi start",
     "build": "npm --prefix game/multi run build",
+    "build:single": "npm --prefix game/single run build",
     "preview": "npm --prefix game/multi run preview",
     "clean": "npm --prefix game/multi run clean",
     "lint": "npm --prefix game/multi run lint",
-    "test": "npm --prefix game/multi test"
+    "lint:single": "npm --prefix game/single run lint",
+    "test": "npm --prefix game/multi test && npm --prefix game/single test",
+    "test:single": "npm --prefix game/single test"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

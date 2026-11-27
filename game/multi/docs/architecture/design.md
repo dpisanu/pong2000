@@ -20,6 +20,7 @@ flowchart TB
     Types["types.ts<br/>Profiles, MatchSnapshot, DemoModePreference, Config"]
     Proto["protocol.ts<br/>Zod ClientCommandSchema & ServerEvent union"]
     Valid["validation.ts<br/>Nickname/avatar checks & mode normalization"]
+    SharedEng["pongEngine.ts + localMatch.ts<br/>Pure 2D Pong physics, Demo AI & local 2P stepper (also used by game/single)"]
   end
 
   subgraph Client["Game Client (game/multi/src/client/ · React + Vite + Tailwind)"]
@@ -85,11 +86,13 @@ game/multi/
 │   ├── app.Dockerfile.dockerignore  # BuildKit ignore rules for docker/app.Dockerfile
 │   └── Dockerfile.dockerignore      # BuildKit ignore rules for docker/Dockerfile
 ├── src/
-│   ├── shared/                      # Single source of truth imported by BOTH client & server
+│   ├── shared/                      # Single source of truth imported by multi client/server & game/single
 │   │   ├── constants.ts             # Physics tuning, 60Hz/30Hz timing, Demo defaults, bundled avatars
 │   │   ├── types.ts                 # Shared TypeScript domain interfaces
 │   │   ├── protocol.ts              # Zod schemas for WS commands + discriminated ServerEvent types
-│   │   └── validation.ts            # Shared sanitization & avatar/demo-mode normalization
+│   │   ├── validation.ts            # Shared sanitization & avatar/demo-mode normalization
+│   │   ├── pongEngine.ts            # Canonical pure 2D Pong physics & 5 Demo AI behaviors
+│   │   └── localMatch.ts            # Deterministic 60 Hz local 2-player stepper (consumed by game/single)
 │   ├── server/                      # Authoritative game server & REST API services
 │   │   ├── server.ts                # Unified HTTP + WS + SPA entry point (dev & prod)
 │   │   ├── http/createApp.ts        # Express REST API, avatar upload/download, LAN IP resolution
@@ -128,7 +131,7 @@ game/multi/
 └── README.md                        # Multiplayer arena documentation
 ```
 
-**Core correlation principle:** `src/shared/` sits at the center so `src/client/` and `src/server/` never drift on physics constants (`ARENA_ASPECT`, `PADDLE_WIDTH`, `SIMULATION_HZ`), validation bounds, or WebSocket wire schemas (`ClientCommandSchema`, `ServerEvent`).
+**Core correlation principle:** `src/shared/` sits at the center so `src/client/`, `src/server/`, and the sibling [`game/single/`](../../../single/) edition never drift on physics constants (`ARENA_ASPECT`, `PADDLE_WIDTH`, `SIMULATION_HZ`), core Pong collision physics (`pongEngine.ts`), validation bounds, or WebSocket wire schemas (`ClientCommandSchema`, `ServerEvent`).
 
 ---
 
@@ -161,8 +164,8 @@ All gameplay, lobby, and ranking state is **server-authoritative** and held in m
 2. **Challenges (`challenges/challengeManager.ts`):**
    - Manages lobby invites with automatic expiry (default 30s), declines, and cancellations.
    - Immediately auto-accepts challenges targeting `Demo Player` without requiring an opponent socket.
-3. **Matches & Physics (`matches/matchManager.ts` + `engine/pongEngine.ts`):**
-   - `pongEngine.ts` implements pure, side-effect-free 2D Pong physics in normalized `[0, 1]` coordinates (`16:10` aspect ratio): paddle bounds clamping, angle bounces up to `50°`, progressive ball speedup per volley, and 5 Demo AI modes (`Wall`, `Gap`, `Honing`, `Swipe`, `Erratic`).
+3. **Matches & Physics (`matches/matchManager.ts` + `engine/pongEngine.ts` → `shared/pongEngine.ts`):**
+   - `shared/pongEngine.ts` (re-exported by `server/engine/pongEngine.ts`) implements pure, side-effect-free 2D Pong physics in normalized `[0, 1]` coordinates (`16:10` aspect ratio): paddle bounds clamping, angle bounces up to `50°`, progressive ball speedup per volley, and 5 Demo AI modes (`Wall`, `Gap`, `Honing`, `Swipe`, `Erratic`). `shared/localMatch.ts` wraps this same engine for the standalone `game/single/` 2-player app.
    - `matchManager.ts` runs an independent **60 Hz fixed-timestep simulation loop** per active match, broadcasts **`match.snapshot` at 30 Hz** (`SNAPSHOT_INTERVAL_TICKS = 2`), handles pre-serve countdowns (unlocking paddles during the final 1s), tracks per-match lowest and highest player ping, pauses on mid-match disconnect, and manages rematch state.
    - When a match starts against `Demo Player`, it loads the player's `demoModePreference` (falling back to a random globally enabled Admin mode when set to `default`).
 4. **Leaderboard (`leaderboard/leaderboardService.ts`):**
@@ -186,8 +189,8 @@ A browser-native React 19 + TypeScript single-page application styled with Tailw
   - Persists profile data and `recoveryToken` in `localStorage`.
 - **Arena Lobby (`lobby/LobbyView.tsx`):** Displays online players, `Available` / `In Match` states, real-time `Ping: X ms` readouts, filters (`All Players` / `Available Only`), and challenge controls.
 - **Client Game Rendering (`game/PongArenaCanvas.tsx` & `game/MatchView.tsx`):**
-  - Captures keyboard inputs (`W`/`S` and `ArrowUp`/`ArrowDown`) and sends `match.input` commands only when movement direction changes.
-  - Interpolates smoothly between the two latest 30 Hz `match.snapshot` updates in `requestAnimationFrame` while applying **visual-only local paddle prediction** so controls feel instantaneous.
+  - Captures keyboard inputs (`W`/`S` and `ArrowUp`/`ArrowDown`) and sends `match.input` commands only when movement direction changes (or routes dual-side local inputs directly when `localTwoPlayer` is enabled for `game/single/`).
+  - Interpolates smoothly between the two latest 30 Hz `match.snapshot` updates in `requestAnimationFrame` while applying **visual-only local paddle prediction** so controls feel instantaneous (and renders direct 60 Hz snapshots in `localTwoPlayer` mode).
   - Triggers WebAudio sound effects (`src/client/audio/`) for paddle hits, scoring, countdowns, and match completion.
 - **Leaderboard, Admin & Share Modal (`leaderboard/LeaderboardView.tsx`, `admin/AdminView.tsx`, `components/LanShareModal.tsx`):**
   - Displays live `leaderboard.updated` pushes, provides the passcode-protected `/admin` configuration panel, and renders offline LAN QR codes via `qrcode`.

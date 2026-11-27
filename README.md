@@ -9,7 +9,7 @@ A multi-part Pong project containing the networked LAN multiplayer arena, an upc
 | Path | Purpose | Status |
 | :--- | :--- | :--- |
 | [`game/multi/`](game/multi/) | Self-hosted networked 2-player Pong arena (Node.js + Express + WebSocket + React) | **Implemented** |
-| [`game/single/`](game/single/) | Single-page, non-networked 2-player local Pong edition | Planned |
+| [`game/single/`](game/single/) | Single-page, non-networked 2-player local Pong edition (`W/S` vs `↑/↓`) | **Implemented** |
 | [`website/`](website/) | Pong2000 marketing & landing website | Planned |
 | [`docs/`](docs/) | Shared product definition, screenshots, and commercial videos | Active |
 
@@ -31,18 +31,20 @@ A multi-part Pong project containing the networked LAN multiplayer arena, an upc
 
 ---
 
-## Networked Multiplayer (`game/multi/`)
+## Playable Editions
 
-See [`game/multi/README.md`](game/multi/README.md) for full gameplay documentation, [`game/multi/docs/build/README.md`](game/multi/docs/build/README.md) for Docker & offline deployment instructions, and [`game/multi/docs/architecture/design.md`](game/multi/docs/architecture/design.md) for system architecture.
+- **Networked Multiplayer ([`game/multi/`](game/multi/)):** See [`game/multi/README.md`](game/multi/README.md) for gameplay documentation, [`game/multi/docs/build/README.md`](game/multi/docs/build/README.md) for Docker & offline deployment, and [`game/multi/docs/architecture/design.md`](game/multi/docs/architecture/design.md) for system architecture.
+- **Single-Page Local 2-Player ([`game/single/`](game/single/)):** See [`game/single/README.md`](game/single/README.md) for shared-keyboard play (`W/S` vs `↑/↓`) reusing `game/multi`'s physics, match logic, and UI.
 
-Root workspace commands delegate directly to `game/multi`:
+Root workspace commands:
 
 ```bash
 npm install --legacy-peer-deps
-npm run dev      # Start Express + WS + Vite dev server on port 3000
-npm test         # Run all Vitest unit (client/server/shared) & WS integration tests
-npm run lint     # TypeScript typecheck
-npm run build    # Build production client bundle into game/multi/dist/
+npm run dev           # Start multi Express + WS + Vite dev server on port 3000
+npm run dev:single    # Start single-page local 2-player Vite server on port 3001
+npm test              # Run all Vitest unit & integration suites (multi + single)
+npm run lint          # TypeScript typecheck (game/multi; use lint:single for game/single)
+npm run build         # Build production client bundle (use build:single for game/single)
 ```
 
 ---
