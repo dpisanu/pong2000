@@ -6,20 +6,25 @@
   "type": "module",
   "workspaces": [
     "game/multi",
-    "game/single"
+    "game/single",
+    "website"
   ],
   "scripts": {
     "dev": "npm --prefix game/multi run dev",
     "dev:single": "npm --prefix game/single run dev",
+    "dev:website": "npm --prefix website run dev",
     "start": "npm --prefix game/multi start",
     "build": "npm --prefix game/multi run build",
     "build:single": "npm --prefix game/single run build",
+    "build:website": "npm --prefix website run build",
     "preview": "npm --prefix game/multi run preview",
     "clean": "npm --prefix game/multi run clean",
     "lint": "npm --prefix game/multi run lint",
     "lint:single": "npm --prefix game/single run lint",
+    "lint:website": "npm --prefix website run lint",
     "test": "npm --prefix game/multi test && npm --prefix game/single test",
-    "test:single": "npm --prefix game/single test"
+    "test:single": "npm --prefix game/single test",
+    "deploy:website": "npm --prefix website run deploy"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

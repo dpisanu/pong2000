@@ -1,0 +1,39 @@
+@import "../../game/multi/src/client/index.css";
+
+/* Ensure Tailwind v4 scans shared game UI components imported from game/multi */
+@source "../../game/multi/src/client/game";
+@source "../../game/multi/src/client/components";
+
+@layer base {
+  :root {
+    --font-display: "Archivo", "Bahnschrift", "DIN Alternate", system-ui, sans-serif;
+    --font-sans: "Plus Jakarta Sans", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background-color: #0d131a;
+    color: #f1f5f9;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+.font-mono-tabular {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
