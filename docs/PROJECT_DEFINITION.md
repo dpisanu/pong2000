@@ -102,7 +102,7 @@ Pong2000 Arena is a self-hosted, browser-native, two-player Pong application for
 - On server restart, volatile sessions and matches are reset. Clients recover to profile/lobby state, not the old match.
 
 ### F7. Network hosting & `/admin` console
-- Package server and built frontend into one Docker image (`app.Dockerfile` referenced by `compose.yaml`, plus `Dockerfile`), exposing port `3000/TCP` and mounting named volume `avatars_data` at `/data/avatars`.
+- Package server and built frontend into one Docker image (`game/multi/docker/app.Dockerfile` referenced by `game/multi/docker/compose.yaml`, plus `Dockerfile`), exposing port `3000/TCP` and mounting named volume `avatars_data` at `/data/avatars`.
 - Bind the HTTP/WebSocket listener to `0.0.0.0` inside the container.
 - Provide `/healthz` endpoint (counting connected human players and active matches) and Docker healthcheck.
 - Client connects to WebSocket using the page's current host and appropriate `ws:`/`wss:` scheme; never hardcode `localhost` or a Network IP.
@@ -153,8 +153,8 @@ Desktop Browser A                  Desktop Browser B
 - **Client:** TypeScript, React 19, Vite, Tailwind CSS, HTML5 Canvas 2D, `qrcode` (offline QR rendering), Web Audio API.
 - **Server:** Node.js 22 (`--experimental-strip-types`), Express, `ws` (WebSocket), `sharp` (image validation & WebP re-encoding).
 - **Shared:** TypeScript protocol schemas, types, constants, and Zod runtime validation.
-- **Build:** Multi-stage Docker build (`app.Dockerfile` & `Dockerfile`) using `--legacy-peer-deps`; production runtime serves compiled `dist/` assets and backend on port 3000.
-- **Tests:** Vitest unit tests (physics, validation, avatar processing, Network URL discovery) and WebSocket integration tests (races, expiry, match isolation, reconnect recovery, disconnect forfeit, unique nicknames).
+- **Build:** Multi-stage Docker build (`game/multi/docker/app.Dockerfile` & `Dockerfile`) using `--legacy-peer-deps`; production runtime serves compiled `game/multi/dist/` assets and backend on port 3000.
+- **Tests:** Vitest unit tests (`tests/{client,shared,server}/`) and WebSocket integration tests (`tests/server/wsProtocol.test.ts`).
 
 ### Responsibilities and boundaries
 - **Client owns:** UI, keyboard capture, local preferences, avatar selection/upload, snapshot interpolation, Web Audio FX, connection UX.
@@ -166,21 +166,28 @@ Desktop Browser A                  Desktop Browser B
 ### Repository layout
 
 ```text
-pong2000-arena/
-  src/{admin,audio,components,game,leaderboard,lobby,network,profile,storage}/
-  server/src/{avatars,challenges,config,engine,http,leaderboard,matches,sessions,ws}/
-  shared/src/{constants,protocol,types,validation}/
-  public/avatars/
-  tests/{unit,integration}/
-  docs/PROJECT_DEFINITION.md
-  server.ts
-  app.Dockerfile
-  Dockerfile
-  compose.yaml
-  .dockerignore
-  .env.example
+pong2000/
+  docs/{PROJECT_DEFINITION.md,screenshots/,videos/}
+  website/
+  game/
+    single/
+    multi/
+      src/client/{admin,audio,components,game,leaderboard,lobby,network,profile,storage}/
+      src/server/{avatars,challenges,config,engine,http,leaderboard,matches,sessions,ws,server.ts}/
+      src/shared/{constants,protocol,types,validation}/
+      assets/avatars/
+      tests/{client,server,shared}/
+      docker/{app.Dockerfile,Dockerfile,compose.yaml,.dockerignore}
+      docs/{architecture,build}/
+      .env.example
+      index.html
+      vite.config.ts
+      tsconfig.json
+      package.json
+      README.md
   LICENSE
   README.md
+  .gitignore
 ```
 
 ## 7. HTTP endpoints
@@ -412,9 +419,9 @@ Performance values are design targets to verify on real hardware, not guaranteed
 - [x] **A20 Runtime Leaderboard (`/leaderboard` & `GET /api/leaderboard`):** Displays non-persistent server-session overview metrics (**Overall Time Played** and **Overall Player Count**) above the ranked players table for the current server runtime (including `Demo Player`), showing Gold/Silver/Bronze trophy icons before the top 3 players' names along with total matches played, won, lost, forfeited, longest match duration, and overall match-averaged ping/lag (computed from per-match lowest/highest datapoints after dropping the overall lowest and highest outliers when more than two datapoints exist).
 
 ### Engineering definition of done
-- [x] Clean Docker build (`app.Dockerfile`) and Compose startup (`compose.yaml`) from README instructions.
-- [x] Unit tests cover wall/paddle collision, anti-tunneling, Demo Wall/Gap/Honing/Swipe/Erratic paddle physics, score, `stepPaddlesOnly` & `MatchManager` countdown paddle head-start timing, nickname/avatar validation, `ServerConfigService` & `AdminAuthService`, `LeaderboardService`, WebP sanitization, and Network URL filtering (`tests/unit/`).
-- [x] Integration tests cover challenge race, expiry, disconnect timeout, reconnect recovery, match isolation, unique nickname enforcement, `ping`/`pong`, Demo Player auto-accept & mode-configured matches, `/api/admin/*`, and `/api/leaderboard` (`tests/integration/`).
+- [x] Clean Docker build (`game/multi/docker/app.Dockerfile`) and Compose startup (`game/multi/docker/compose.yaml`) from build docs instructions.
+- [x] Unit tests cover wall/paddle collision, anti-tunneling, Demo Wall/Gap/Honing/Swipe/Erratic paddle physics, score, `stepPaddlesOnly` & `MatchManager` countdown paddle head-start timing, nickname/avatar validation, client storage/WS transport, `ServerConfigService` & `AdminAuthService`, `LeaderboardService`, WebP sanitization, and Network URL filtering (`game/multi/tests/{client,server,shared}/`).
+- [x] Integration tests cover challenge race, expiry, disconnect timeout, reconnect recovery, match isolation, unique nickname enforcement, `ping`/`pong`, Demo Player auto-accept & mode-configured matches, `/api/admin/*`, and `/api/leaderboard` (`game/multi/tests/server/wsProtocol.test.ts`).
 - [x] Verified on Docker Compose Network host (`/healthz`, container build, multi-client play).
 - [x] No runtime dependency on external APIs, hosted assets, or cloud services.
 - [x] README includes configuration, startup, `/leaderboard` & `/admin` usage, Demo Mode, sharing Server URL, offline `docker save`/`load`, licensing (MIT `LICENSE`), and troubleshooting.
